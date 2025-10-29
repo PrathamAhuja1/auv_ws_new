@@ -202,7 +202,7 @@
       <fluid_density>1000</fluid_density>
       <propeller_diameter>0.1</propeller_diameter>
       <velocity_control>true</velocity_control>
-      <use_angvel_cmd>False</use_angvel_cmd>
+      <use_angvel_cmd>True</use_angvel_cmd>
     </plugin>
     </gazebo>
 
@@ -216,7 +216,7 @@
       <fluid_density>1000</fluid_density>
       <propeller_diameter>0.1</propeller_diameter>
       <velocity_control>true</velocity_control>
-      <use_angvel_cmd>False</use_angvel_cmd>
+      <use_angvel_cmd>True</use_angvel_cmd>
     </plugin>
     </gazebo>
 
@@ -231,7 +231,7 @@
       <fluid_density>1000</fluid_density>
       <propeller_diameter>0.1</propeller_diameter>
       <velocity_control>true</velocity_control>
-      <use_angvel_cmd>False</use_angvel_cmd>
+      <use_angvel_cmd>True</use_angvel_cmd>
     </plugin>
     </gazebo>
 
@@ -246,7 +246,7 @@
       <fluid_density>1000</fluid_density>
       <propeller_diameter>0.1</propeller_diameter>
       <velocity_control>true</velocity_control>
-      <use_angvel_cmd>False</use_angvel_cmd>
+      <use_angvel_cmd>True</use_angvel_cmd>
     </plugin>
     </gazebo>
 
@@ -260,7 +260,7 @@
       <fluid_density>1000</fluid_density>
       <propeller_diameter>0.1</propeller_diameter>
       <velocity_control>true</velocity_control>
-      <use_angvel_cmd>False</use_angvel_cmd>
+      <use_angvel_cmd>True</use_angvel_cmd>
     </plugin>
     </gazebo>
 
@@ -275,7 +275,7 @@
       <fluid_density>1000</fluid_density>
       <propeller_diameter>0.1</propeller_diameter>
       <velocity_control>true</velocity_control>
-      <use_angvel_cmd>False</use_angvel_cmd>
+      <use_angvel_cmd>True</use_angvel_cmd>
     </plugin>
     </gazebo>
 
