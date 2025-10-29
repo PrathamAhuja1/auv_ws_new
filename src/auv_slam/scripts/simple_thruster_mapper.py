@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-FIXED Simple Thruster Mapper for BlueROV2 Configuration
-Converts Twist commands to individual thruster commands
-KEY FIX: Correct sign convention for vectored thrusters
+CORRECTED Thruster Mapper for BlueROV2 Vectored Configuration
+Uses proper vector mathematics for 45° angled thrusters
 """
 
 import rclpy
@@ -10,11 +9,12 @@ from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from std_msgs.msg import Float64
 import numpy as np
+import math
 
 
-class SimpleThrusterMapper(Node):
+class CorrectedThrusterMapper(Node):
     def __init__(self):
-        super().__init__('simple_thruster_mapper')
+        super().__init__('corrected_thruster_mapper')
         
         # Parameters
         self.declare_parameter('max_thrust', 150.0)
@@ -30,60 +30,73 @@ class SimpleThrusterMapper(Node):
             Twist, '/rp2040/cmd_vel', self.cmd_vel_callback, 10)
         
         # Publishers for 6 thrusters
-        # CRITICAL: Must publish to /thrusterN_cmd (bridged topics), not direct Gazebo topics
         self.thruster_pubs = []
         for i in range(1, 7):
-            pub = self.create_publisher(
-                Float64, 
-                f'/thruster{i}_cmd',
-                10
-            )
+            pub = self.create_publisher(Float64, f'/thruster{i}_cmd', 10)
             self.thruster_pubs.append(pub)
         
-        self.get_logger().info('✅ FIXED Thruster Mapper initialized')
+        self.get_logger().info('✅ CORRECTED Thruster Mapper initialized')
         self.get_logger().info(f'Max thrust: {self.max_thrust}, Scale: {self.thrust_scale}')
+        self.get_logger().info('Using vectored thruster geometry (45° angles)')
     
     def cmd_vel_callback(self, msg: Twist):
         """
-        Map twist commands to thruster forces
-        BlueROV2 Configuration (Vectored):
+        Vectored Thruster Configuration (45° angles):
         
-        Front View:        Top View:
-           T5  T6          T1 --- T2
-            |  |            \   /
-         T1-BODY-T2          \ /
-            |  |            BODY
-         T3-    -T4          / \
-                            /   \
-                          T3 --- T4
+        Top View:
+             FRONT
+               ↑
+        T1 ↗     ↖ T2
+           \  •  /
+            \ | /
+        T3 ←  •  → T4
+            / | \
+           /  •  \
+        T3 ↙     ↘ T4
+             BACK
         
-        KEY: Front thrusters (T1, T2) push FORWARD when positive
-             Back thrusters (T3, T4) push FORWARD when NEGATIVE
-             This is because they're facing opposite directions!
+        Each horizontal thruster at 45° provides:
+        - Component along X-axis (surge)
+        - Component along Y-axis (sway)
+        
+        T1: Front-Left  (-45° from X-axis)
+        T2: Front-Right (+45° from X-axis)
+        T3: Back-Left   (-135° from X-axis)
+        T4: Back-Right  (+135° from X-axis)
         """
         
-        # Extract commands (in body frame)
+        # Extract commands (body frame)
         surge = msg.linear.x * self.thrust_scale   # +X = forward
         sway = msg.linear.y * self.thrust_scale    # +Y = left
-        heave = msg.linear.z * self.thrust_scale * self.vertical_boost  # +Z = up
-        yaw = msg.angular.z * self.thrust_scale    # +Z = CCW rotation
+        heave = msg.linear.z * self.thrust_scale * self.vertical_boost
+        yaw = msg.angular.z * self.thrust_scale    # +Z = CCW
         
-        # ==================== CRITICAL FIX ====================
-        # Vectored thruster allocation (45° angled thrusters)
-        # Each thruster contributes to both surge and sway
+        # ==================== VECTORED THRUSTER MATH ====================
+        # For 45° angled thrusters, we need to decompose forces
+        # Each thruster contributes: thrust * cos(45°) to each axis
         
-        # FORWARD MOTION: T1 & T2 positive, T3 & T4 NEGATIVE
-        # LEFT MOTION: T1 & T3 negative, T2 & T4 positive  
-        # CCW ROTATION: T1 & T3 negative, T2 & T4 positive
+        # Simplification: cos(45°) = sin(45°) = 0.707
+        # But we can work with the full values and normalize
         
-        t1 = surge - sway - yaw   # Front-Left: + for forward
-        t2 = surge + sway + yaw   # Front-Right: + for forward
-        t3 = -surge - sway + yaw  # Back-Left: - for forward (REVERSED)
-        t4 = -surge + sway - yaw  # Back-Right: - for forward (REVERSED)
+        # FORWARD (+surge): All 4 thrusters spin forward
+        # LEFT (+sway): T1,T3 forward, T2,T4 backward
+        # CCW (+yaw): T1,T4 forward, T2,T3 backward
         
-        # Vertical thrusters (pointing down)
-        # IMPORTANT: In simulation, negative Z command = downward motion
-        # So we INVERT the sign to match AUV convention
+        # BlueROV2 Standard Allocation:
+        # T1 (Front-Left):  +surge +sway +yaw
+        # T2 (Front-Right): +surge -sway -yaw
+        # T3 (Back-Left):   +surge +sway -yaw
+        # T4 (Back-Right):  +surge -sway +yaw
+        
+        t1 = surge + sway + yaw   # Front-Left
+        t2 = surge - sway - yaw   # Front-Right
+        t3 = surge + sway - yaw   # Back-Left
+        t4 = surge - sway + yaw   # Back-Right
+        
+        # Vertical thrusters (T5, T6)
+        # Both point downward, so positive command = downward thrust
+        # BUT: In our convention, negative Z command = submerge
+        # So we need to INVERT the sign
         t5 = -heave  # Front vertical
         t6 = -heave  # Back vertical
         
@@ -97,19 +110,20 @@ class SimpleThrusterMapper(Node):
             cmd_msg.data = float(thrust)
             pub.publish(cmd_msg)
         
-        # Debug logging (only when moving)
+        # Debug logging
         if any(abs(t) > 0.1 for t in thrusts):
             self.get_logger().info(
-                f'🎮 Cmd: surge={surge:.1f}, sway={sway:.1f}, heave={heave:.1f}, yaw={yaw:.1f}\n'
-                f'   T: [T1={thrusts[0]:.1f}, T2={thrusts[1]:.1f}, T3={thrusts[2]:.1f}, '
-                f'T4={thrusts[3]:.1f}, T5={thrusts[4]:.1f}, T6={thrusts[5]:.1f}]',
+                f'🎮 Input: surge={surge:.1f}, sway={sway:.1f}, heave={heave:.1f}, yaw={yaw:.1f}\n'
+                f'   Output: [T1={thrusts[0]:.1f}, T2={thrusts[1]:.1f}, '
+                f'T3={thrusts[2]:.1f}, T4={thrusts[3]:.1f}, '
+                f'T5={thrusts[4]:.1f}, T6={thrusts[5]:.1f}]',
                 throttle_duration_sec=1.0
             )
 
 
 def main(args=None):
     rclpy.init(args=args)
-    node = SimpleThrusterMapper()
+    node = CorrectedThrusterMapper()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

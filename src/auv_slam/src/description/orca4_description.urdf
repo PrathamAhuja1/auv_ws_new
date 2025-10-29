@@ -145,52 +145,57 @@
 
 
     <joint name="thruster1_joint" type="revolute">
-      <parent link = "base_link" />
-      <child link = "thruster1" />
-      <origin xyz="0.14 -0.092 0" rpy="-1.5707963267948966 1.5707963267948966 -0.7853981633974483"/>
-      <axis xyz = "0 0 -1" />
-      <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
-    </joint>
+    <parent link="base_link" />
+    <child link="thruster1" />
+    <origin xyz="0.14 -0.092 0" rpy="0 0 -0.7853981633974483"/>
+    <axis xyz="1 0 0" />  <!-- CRITICAL FIX: Changed from "0 0 -1" -->
+    <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
+  </joint>
 
-    <joint name="thruster2_joint" type="revolute">
-      <parent link = "base_link" />
-      <child link = "thruster2" />
-      <origin xyz="0.14 0.092 0" rpy="-1.5707963267948966 1.5707963267948966 -2.356194490192345"/>
-      <axis xyz = "0 0 -1" />
-      <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
-    </joint>
+  <!-- Thruster 2: Front-Right (45° angle, facing forward-right) -->
+  <joint name="thruster2_joint" type="revolute">
+    <parent link="base_link" />
+    <child link="thruster2" />
+    <origin xyz="0.14 0.092 0" rpy="0 0 -2.356194490192345"/>
+    <axis xyz="1 0 0" />  <!-- CRITICAL FIX: Changed from "0 0 -1" -->
+    <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
+  </joint>
 
-    <joint name="thruster3_joint" type="revolute">
-      <parent link = "base_link" />
-      <child link = "thruster3" />
-      <origin xyz="-0.14 -0.092 0" rpy="-1.5707963267948966 1.5707963267948966 0.7853981633974483"/>
-      <axis xyz = "0 0 -1" />
-      <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
-    </joint>
+  <!-- Thruster 3: Back-Left (45° angle, facing backward-left) -->
+  <joint name="thruster3_joint" type="revolute">
+    <parent link="base_link" />
+    <child link="thruster3" />
+    <origin xyz="-0.14 -0.092 0" rpy="0 0 0.7853981633974483"/>
+    <axis xyz="1 0 0" />  <!-- CRITICAL FIX: Changed from "0 0 -1" -->
+    <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
+  </joint>
 
-    <joint name="thruster4_joint" type="revolute">
-      <parent link = "base_link" />
-      <child link = "thruster4" />
-      <origin xyz="-0.14 0.092 0" rpy="-1.5707963267948966 1.5707963267948966 2.356194490192345"/>
-      <axis xyz = "0 0 -1" />
-      <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
-    </joint>
+  <!-- Thruster 4: Back-Right (45° angle, facing backward-right) -->
+  <joint name="thruster4_joint" type="revolute">
+    <parent link="base_link" />
+    <child link="thruster4" />
+    <origin xyz="-0.14 0.092 0" rpy="0 0 2.356194490192345"/>
+    <axis xyz="1 0 0" />  <!-- CRITICAL FIX: Changed from "0 0 -1" -->
+    <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
+  </joint>
 
-    <joint name="thruster5_joint" type="revolute">
-      <parent link = "base_link" />
-      <child link = "thruster5" />
-      <origin xyz="0 -0.109 0.077" rpy="0 0 0"/>
-      <axis xyz = "0 0 -1" />
-      <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
-    </joint>
+  <!-- Thruster 5: Vertical Front (pointing down) -->
+  <joint name="thruster5_joint" type="revolute">
+    <parent link="base_link" />
+    <child link="thruster5" />
+    <origin xyz="0 -0.109 0.077" rpy="0 0 0"/>
+    <axis xyz="0 0 1" />  <!-- This one is correct -->
+    <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
+  </joint>
 
-    <joint name="thruster6_joint" type="revolute">
-      <parent link = "base_link" />
-      <child link = "thruster6" />
-      <origin xyz="0 0.109 0.077" rpy="0 0 0"/>
-      <axis xyz = "0 0 -1" />
-      <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
-    </joint>
+  <!-- Thruster 6: Vertical Back (pointing down) -->
+  <joint name="thruster6_joint" type="revolute">
+    <parent link="base_link" />
+    <child link="thruster6" />
+    <origin xyz="0 0.109 0.077" rpy="0 0 0"/>
+    <axis xyz="0 0 1" />  <!-- This one is correct -->
+    <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
+  </joint>
 
     <gazebo>
     <plugin
