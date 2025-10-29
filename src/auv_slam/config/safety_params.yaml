@@ -1,0 +1,29 @@
+# Used by: enhanced_safety_monitor.py
+
+enhanced_safety_monitor:
+  ros__parameters:
+    # Depth limits (Z-axis, negative is down)
+    max_depth: -3.5        # Pool bottom ~3m
+    min_depth: 0.2         # Near surface
+    gate_collision_depth: -0.5
+    
+    # Orientation limits (radians)
+    max_roll: 0.785        # 45 degrees
+    max_pitch: 0.785       # 45 degrees
+    
+    # Pool boundaries (meters)
+    pool_bounds_x: [-25.0, 25.0]  # 50m length
+    pool_bounds_y: [-12.5, 12.5]  # 25m width
+    
+    # Timeouts (seconds)
+    watchdog_timeout: 5.0
+    max_mission_time: 900.0  # 15 minutes
+    
+    # Emergency response
+    emergency_surface_thrust: 1.0
+    
+    # Violation thresholds
+    max_consecutive_depth_violations: 5
+    max_consecutive_tilt_violations: 10
+    max_wall_touches: 5
+    max_floor_touches: 5

@@ -1,0 +1,27 @@
+# Thruster Mapper Parameters - OPTIMIZED FOR GAZEBO SIMULATION
+
+simple_thruster_mapper:
+  ros__parameters:
+    # Thrust limits - INCREASED for better responsiveness
+    max_thrust: 150.0  # Increased from 10.0
+    min_thrust: -150.0
+
+    thrust_scale: 15.0 
+    
+
+    vertical_thrust_boost: 2.0
+    
+    # Deadband (ignore small commands)
+    deadband_threshold: 0.02  # Reduced from 0.05
+    
+    # Rate limiting (prevent sudden changes)
+    max_thrust_rate: 20.0  # Increased from 10.0
+    
+    # Individual thruster trim (for hardware calibration)
+    thruster_trim:
+      t1: 1.0  # Front-left
+      t2: 1.0  # Front-right
+      t3: 1.0  # Back-left
+      t4: 1.0  # Back-right
+      t5: 1.0  # Vertical-left
+      t6: 1.0  # Vertical-right

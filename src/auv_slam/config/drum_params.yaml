@@ -1,0 +1,25 @@
+drum_detector_node:
+  ros__parameters:
+    min_contour_area: 800
+    drum_aspect_ratio_min: 0.8
+    drum_aspect_ratio_max: 1.2
+    publish_debug: true
+    
+    # HSV ranges for drums
+    blue_hsv:
+      lower: [100, 150, 50]
+      upper: [130, 255, 255]
+    
+    red_hsv:
+      lower1: [0, 120, 70]
+      upper1: [10, 255, 255]
+      lower2: [170, 120, 70]
+      upper2: [180, 255, 255]
+
+drum_navigator_node:
+  ros__parameters:
+    target_depth: -2.7
+    hover_height: 0.5
+    centering_speed: 0.15
+    centering_threshold: 30
+    hover_duration: 3.0

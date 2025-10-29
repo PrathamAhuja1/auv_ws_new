@@ -1,0 +1,31 @@
+# Used by: gate_navigator_node.py & BT.py
+# OPTIMIZED FOR SPEED AND ACCURACY
+
+gate_detection_controller:
+  ros__parameters:
+    # Depth control - Tuned to prevent oscillation
+    target_depth: -1.5
+    depth_correction_gain: 0.8  # Reduced to prevent oscillation
+    depth_tolerance: 0.2  # Slightly looser for stability
+
+    # Speed settings - OPTIMIZED FOR FASTEST COMPLETION
+    search_forward_speed: 0.5  # Increased from 0.4
+    approach_speed: 0.6  # Increased from 0.5
+    passing_speed: 0.8  # Increased from 0.6
+    passing_duration: 6.0  # Increased to ensure full passage
+
+    # Alignment - Tighter for accuracy
+    alignment_threshold: 0.10  # Tighter from 0.2
+    yaw_correction_gain: 1.0  # Increased from 0.6
+
+    # Distance thresholds
+    safe_distance_threshold: 3.0
+    passing_distance_threshold: 1.2  # Start passing closer
+
+    # Flare avoidance
+    flare_avoidance_gain: 0.8
+    flare_avoidance_duration: 3.0
+
+    # Timeouts - Reduced for faster mission
+    gate_lost_timeout: 2.0
+    search_timeout: 45.0  # Reduced from 60.0

@@ -1,0 +1,33 @@
+# Used by: Flare_Detection.py (flare_detector_node)
+
+flare_detector_node:
+  ros__parameters:
+    # Detection parameters
+    min_contour_area: 300
+    min_aspect_ratio: 3.0
+    publish_debug: true
+    
+    # HSV color ranges for flares (80cm tall, ~1.6cm diameter)
+    # Red flare
+    red_hsv:
+      lower1: [0, 120, 70]
+      upper1: [10, 255, 255]
+      lower2: [170, 120, 70]
+      upper2: [180, 255, 255]
+    
+    # Yellow flare
+    yellow_hsv:
+      lower: [20, 100, 100]
+      upper: [30, 255, 255]
+    
+    # Blue flare
+    blue_hsv:
+      lower: [100, 150, 50]
+      upper: [130, 255, 255]
+    
+    # Morphological operations
+    morph_kernel_size: 5
+    
+    # Confidence filtering
+    min_detections_for_confirm: 3
+    detection_history_size: 10

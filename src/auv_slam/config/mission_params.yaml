@@ -1,0 +1,73 @@
+# Used by: Complete mission launch
+
+
+/**:
+  ros__parameters:
+    use_sim_time: true
+
+# Gate Detection
+gate_detector_node:
+  ros__parameters:
+    min_contour_area: 500
+    aspect_ratio_threshold: 2.0
+    gate_width_meters: 1.5
+    flare_min_area: 300
+    flare_aspect_min: 3.0
+    flare_danger_threshold: 0.3
+    publish_debug: true
+
+# Gate Navigation
+gate_navigator_node:
+  ros__parameters:
+    target_depth: -1.5
+    depth_correction_gain: 1.0
+    search_forward_speed: 0.4
+    approach_speed: 0.5
+    passing_speed: 0.6
+    passing_duration: 5.0
+    alignment_threshold: 0.2
+    yaw_correction_gain: 0.6
+    safe_distance_threshold: 3.0
+    passing_distance_threshold: 1.5
+    flare_avoidance_gain: 0.8
+    flare_avoidance_duration: 3.0
+
+# Flare Detection
+flare_detector_node:
+  ros__parameters:
+    min_contour_area: 300
+    min_aspect_ratio: 3.0
+    publish_debug: true
+
+# Safety Monitor
+enhanced_safety_monitor:
+  ros__parameters:
+    max_depth: -3.5
+    min_depth: 0.2
+    max_roll: 0.785
+    max_pitch: 0.785
+    watchdog_timeout: 5.0
+    max_mission_time: 900.0
+    pool_bounds_x: [-25.0, 25.0]
+    pool_bounds_y: [-12.5, 12.5]
+    emergency_surface_thrust: 1.0
+
+# Mission State Manager
+mission_state_manager_enhanced:
+  ros__parameters:
+    auto_recover: true
+    save_interval: 2.0
+    max_retries: 3
+
+# Thruster Mapper
+simple_thruster_mapper:
+  ros__parameters:
+    max_thrust: 10.0
+    thrust_scale: 3.0
+
+# Acoustic Pinger Detector
+acoustic_pinger_detector:
+  ros__parameters:
+    target_frequency: 45000
+    detection_threshold: 0.6
+    publish_debug: true

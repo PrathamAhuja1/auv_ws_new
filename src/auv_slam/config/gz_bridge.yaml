@@ -1,0 +1,93 @@
+# Bridge ROS 2 <> Gazebo Sim topics for AUV Core Simulation
+# Robot name: orca4_ign
+
+# Clock
+- ros_topic_name: "/clock"
+  gz_topic_name: "/clock"
+  ros_type_name: "rosgraph_msgs/msg/Clock"
+  gz_type_name: "gz.msgs.Clock"
+  direction: GZ_TO_ROS
+
+# IMU Data from URDF sensor plugin
+- ros_topic_name: "/imu/data"
+  gz_topic_name: "/imu/data"
+  ros_type_name: "sensor_msgs/msg/Imu"
+  gz_type_name: "gz.msgs.IMU"
+  direction: GZ_TO_ROS
+
+# Downward Camera from URDF sensor plugin
+- ros_topic_name: "/camera_down/image_raw"
+  gz_topic_name: "/camera_down/image_raw"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "gz.msgs.Image"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/camera_down/camera_info"
+  gz_topic_name: "/camera_down/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "gz.msgs.CameraInfo"
+  direction: GZ_TO_ROS
+
+# Ground Truth Odometry (using orca4_ign model name)
+- ros_topic_name: "/ground_truth/odom"
+  gz_topic_name: "/model/orca4_ign/odometry"
+  ros_type_name: "nav_msgs/msg/Odometry"
+  gz_type_name: "gz.msgs.Odometry"
+  direction: GZ_TO_ROS
+
+# Thruster Commands (ROS Float64 -> Gazebo Double for joint velocity)
+# Using orca4_ign model name
+- ros_topic_name: "/thruster1_cmd"
+  gz_topic_name: "/model/orca4_ign/joint/thruster1_joint/cmd_vel"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+
+- ros_topic_name: "/thruster2_cmd"
+  gz_topic_name: "/model/orca4_ign/joint/thruster2_joint/cmd_vel"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+
+- ros_topic_name: "/thruster3_cmd"
+  gz_topic_name: "/model/orca4_ign/joint/thruster3_joint/cmd_vel"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+
+- ros_topic_name: "/thruster4_cmd"
+  gz_topic_name: "/model/orca4_ign/joint/thruster4_joint/cmd_vel"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+
+- ros_topic_name: "/thruster5_cmd"
+  gz_topic_name: "/model/orca4_ign/joint/thruster5_joint/cmd_vel"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+
+- ros_topic_name: "/thruster6_cmd"
+  gz_topic_name: "/model/orca4_ign/joint/thruster6_joint/cmd_vel"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+
+# Joint States (For RViz/Robot State Publisher)
+- ros_topic_name: "/joint_states"
+  gz_topic_name: "/world/sauvc_pool/model/orca4_ign/joint_state"
+  ros_type_name: "sensor_msgs/msg/JointState"
+  gz_type_name: "gz.msgs.Model"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/camera_forward/image_raw"
+  gz_topic_name: "/camera_forward/image_raw"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "gz.msgs.Image"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/camera_forward/camera_info"
+  gz_topic_name: "/camera_forward/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "gz.msgs.CameraInfo"
+  direction: GZ_TO_ROS

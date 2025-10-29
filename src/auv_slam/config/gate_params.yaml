@@ -1,0 +1,34 @@
+# Used by: gate_detector_node.py
+
+gate_detector_node:
+  ros__parameters:
+    # Vision parameters
+    min_contour_area: 400
+    aspect_ratio_threshold: 2.0
+    gate_width_meters: 1.5
+    
+    # Orange flare detection
+    flare_min_area: 300
+    flare_aspect_min: 3.0
+    flare_danger_threshold: 0.3
+    
+    # Debug
+    publish_debug: true
+    
+    # HSV color ranges (for underwater conditions)
+    # Red stripes (gate port side)
+    red_hsv:
+      lower1: [0, 100, 100]
+      upper1: [10, 255, 255]
+      lower2: [160, 100, 100]
+      upper2: [180, 255, 255]
+    
+    # Green stripes (gate starboard side)
+    green_hsv:
+      lower: [40, 50, 50]
+      upper: [90, 255, 255]
+    
+    # Orange flare (MUST AVOID)
+    orange_hsv:
+      lower: [10, 100, 100]
+      upper: [25, 255, 255]

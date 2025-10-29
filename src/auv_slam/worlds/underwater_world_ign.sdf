@@ -1,0 +1,996 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <world name="sauvc_pool">
+    
+    <!-- Scene settings for underwater appearance -->
+    <scene>
+      <ambient>0.0 0.4 0.6</ambient>
+      <background>0.0 0.3 0.5</background>
+    </scene>
+    
+
+    <!-- Physics settings for underwater simulation -->
+    <physics name="default" type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+      <gravity>0 0 -9.81</gravity>
+    </physics>
+
+    <!-- Essential Ignition Gazebo Plugins -->
+    <plugin name='ignition::gazebo::systems::Physics' filename='ignition-gazebo-physics-system'/>
+    <plugin name='ignition::gazebo::systems::UserCommands' filename='ignition-gazebo-user-commands-system'/>
+    <plugin name='ignition::gazebo::systems::SceneBroadcaster' filename='ignition-gazebo-scene-broadcaster-system'/>
+    <plugin filename="ignition-gazebo-sensors-system" name="ignition::gazebo::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="ignition-gazebo-contact-system" name="ignition::gazebo::systems::Contact"/>
+    
+    <!-- Buoyancy plugin for underwater physics -->
+    <plugin filename="ignition-gazebo-buoyancy-system" name="ignition::gazebo::systems::Buoyancy">
+      <uniform_fluid_density>1000</uniform_fluid_density>
+    </plugin>
+    
+    <!-- Lighting -->
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Underwater lighting -->
+    <light type="point" name="underwater_light_1">
+      <pose>0 0 -1 0 0 0</pose>
+      <diffuse>0.4 0.5 0.6 1</diffuse>
+      <specular>0.1 0.1 0.1 1</specular>
+      <attenuation>
+        <range>20</range>
+        <constant>0.5</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+    </light>
+
+    <!-- Sky Camera - looking down -->
+    <model name="sky_cam">
+      <static>true</static>
+      <link name="camera_link">
+        <pose>0 0 10 1.57 1.57 0</pose>
+        <sensor name="sky_cam" type="camera">
+          <camera>
+            <horizontal_fov>1.047</horizontal_fov>
+            <image>
+              <width>1024</width>
+              <height>768</height>
+            </image>
+            <clip>
+              <near>0.1</near>
+              <far>100</far>
+            </clip>
+          </camera>
+          <always_on>1</always_on>
+          <update_rate>1</update_rate>
+          <visualize>true</visualize>
+          <topic>sky_cam</topic>
+        </sensor>
+      </link>
+    </model>
+
+    <!-- Olympic Pool (50m x 25m x 3m depth) -->
+    <model name="pool">
+      <static>true</static>
+      <link name="pool_link">
+        
+        <!-- Pool Floor -->
+        <collision name="floor_collision">
+          <pose>0 0 -3.0 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>50 25 0.1</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="floor_visual">
+          <pose>0 0 -3.0 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>50 25 0.1</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.2 0.4 0.6 1</ambient>
+            <diffuse>0.2 0.4 0.6 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+
+        <!-- Pool Walls -->
+        <!-- Wall 1 (length) -->
+        <collision name="wall1_collision">
+          <pose>0 12.55 -1.5 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>50 0.1 3</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="wall1_visual">
+          <pose>0 12.55 -1.5 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>50 0.1 3</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.3 0.5 0.7 0.8</ambient>
+            <diffuse>0.3 0.5 0.7 0.8</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+          </material>
+        </visual>
+
+        <!-- Wall 2 (length) -->
+        <collision name="wall2_collision">
+          <pose>0 -12.55 -1.5 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>50 0.1 3</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="wall2_visual">
+          <pose>0 -12.55 -1.5 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>50 0.1 3</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.3 0.5 0.7 0.8</ambient>
+            <diffuse>0.3 0.5 0.7 0.8</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+          </material>
+        </visual>
+
+        <!-- Wall 3 (width) -->
+        <collision name="wall3_collision">
+          <pose>25.05 0 -1.5 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.1 25 3</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="wall3_visual">
+          <pose>25.05 0 -1.5 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.1 25 3</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.3 0.5 0.7 0.8</ambient>
+            <diffuse>0.3 0.5 0.7 0.8</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+          </material>
+        </visual>
+
+        <!-- Wall 4 (width) -->
+        <collision name="wall4_collision">
+          <pose>-25.05 0 -1.5 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.1 25 3</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="wall4_visual">
+          <pose>-25.05 0 -1.5 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.1 25 3</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.3 0.5 0.7 0.8</ambient>
+            <diffuse>0.3 0.5 0.7 0.8</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+          </material>
+        </visual>
+
+        <!-- Water Surface Marker -->
+        <visual name="water_surface">
+          <pose>0 0 0 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>50 25 0.01</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.3 0.5 0.7 0.3</ambient>
+            <diffuse>0.3 0.5 0.7 0.3</diffuse>
+            <specular>0.5 0.5 0.5 0.3</specular>
+          </material>
+        </visual>
+
+      </link>
+    </model>
+
+    <!-- Starting Zone (140cm x 140cm marked on surface) -->
+    <model name="starting_zone">
+      <static>true</static>
+      <pose>-20 0 0.01 0 0 0</pose>
+      <link name="starting_zone_link">
+        <visual name="starting_zone_visual">
+          <geometry>
+            <box>
+              <size>1.4 1.4 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>1 1 0 0.8</ambient>
+            <diffuse>1 1 0 0.8</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Navigation Gate (at bottom, ~12m from start) -->
+    <!-- Navigation Gate (150cm wide x 150cm tall with striped markings) -->
+    <model name="navigation_gate">
+    <static>true</static>
+    <pose>-8 0 -1.5 0 0 0</pose>
+    <link name="gate_link">
+      
+      <!-- Left Post (Red stripes - Port side) -->
+      <collision name="left_post_collision">
+        <pose>-0.75 0 0 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.08 0.08 1.5</size>
+          </box>
+        </geometry>
+      </collision>
+      
+      <!-- Red stripe 1 (bottom) -->
+      <visual name="left_stripe_1">
+        <pose>-0.75 0 -0.60 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.09 0.09 0.30</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>1 0 0 1</ambient>
+          <diffuse>1 0 0 1</diffuse>
+          <specular>0.3 0.3 0.3 1</specular>
+          <emissive>0.3 0 0 1</emissive>
+        </material>
+      </visual>
+      
+      <!-- Black stripe 1 -->
+      <visual name="left_stripe_2">
+        <pose>-0.75 0 -0.375 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.09 0.09 0.15</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.1 0.1 0.1 1</ambient>
+          <diffuse>0.1 0.1 0.1 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      
+      <!-- Red stripe 2 -->
+      <visual name="left_stripe_3">
+        <pose>-0.75 0 -0.15 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.09 0.09 0.30</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>1 0 0 1</ambient>
+          <diffuse>1 0 0 1</diffuse>
+          <specular>0.3 0.3 0.3 1</specular>
+          <emissive>0.3 0 0 1</emissive>
+        </material>
+      </visual>
+      
+      <!-- Black stripe 2 -->
+      <visual name="left_stripe_4">
+        <pose>-0.75 0 0.075 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.09 0.09 0.15</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.1 0.1 0.1 1</ambient>
+          <diffuse>0.1 0.1 0.1 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      
+      <!-- Red stripe 3 -->
+      <visual name="left_stripe_5">
+        <pose>-0.75 0 0.30 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.09 0.09 0.30</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>1 0 0 1</ambient>
+          <diffuse>1 0 0 1</diffuse>
+          <specular>0.3 0.3 0.3 1</specular>
+          <emissive>0.3 0 0 1</emissive>
+        </material>
+      </visual>
+      
+      <!-- Black stripe 3 -->
+      <visual name="left_stripe_6">
+        <pose>-0.75 0 0.525 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.09 0.09 0.15</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.1 0.1 0.1 1</ambient>
+          <diffuse>0.1 0.1 0.1 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      
+      <!-- Red stripe 4 (top) -->
+      <visual name="left_stripe_7">
+        <pose>-0.75 0 0.675 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.09 0.09 0.15</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>1 0 0 1</ambient>
+          <diffuse>1 0 0 1</diffuse>
+          <specular>0.3 0.3 0.3 1</specular>
+          <emissive>0.3 0 0 1</emissive>
+        </material>
+      </visual>
+
+      <!-- Right Post (Green stripes - Starboard side) -->
+      <!-- Base structure with thicker profile -->
+      <collision name="right_post_collision">
+        <pose>0.75 0 0 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.08 0.08 1.5</size>
+          </box>
+        </geometry>
+      </collision>
+      
+      <!-- Green stripe 1 (bottom) -->
+      <visual name="right_stripe_1">
+        <pose>0.75 0 -0.60 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.09 0.09 0.30</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0 1 0 1</ambient>
+          <diffuse>0 1 0 1</diffuse>
+          <specular>0.3 0.3 0.3 1</specular>
+          <emissive>0 0.3 0 1</emissive>
+        </material>
+      </visual>
+      
+      <!-- Black stripe 1 -->
+      <visual name="right_stripe_2">
+        <pose>0.75 0 -0.375 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.09 0.09 0.15</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.1 0.1 0.1 1</ambient>
+          <diffuse>0.1 0.1 0.1 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      
+      <!-- Green stripe 2 -->
+      <visual name="right_stripe_3">
+        <pose>0.75 0 -0.15 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.09 0.09 0.30</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0 1 0 1</ambient>
+          <diffuse>0 1 0 1</diffuse>
+          <specular>0.3 0.3 0.3 1</specular>
+          <emissive>0 0.3 0 1</emissive>
+        </material>
+      </visual>
+      
+      <!-- Black stripe 2 -->
+      <visual name="right_stripe_4">
+        <pose>0.75 0 0.075 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.09 0.09 0.15</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.1 0.1 0.1 1</ambient>
+          <diffuse>0.1 0.1 0.1 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      
+      <!-- Green stripe 3 -->
+      <visual name="right_stripe_5">
+        <pose>0.75 0 0.30 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.09 0.09 0.30</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0 1 0 1</ambient>
+          <diffuse>0 1 0 1</diffuse>
+          <specular>0.3 0.3 0.3 1</specular>
+          <emissive>0 0.3 0 1</emissive>
+        </material>
+      </visual>
+      
+      <!-- Black stripe 3 -->
+      <visual name="right_stripe_6">
+        <pose>0.75 0 0.525 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.09 0.09 0.15</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.1 0.1 0.1 1</ambient>
+          <diffuse>0.1 0.1 0.1 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      
+      <!-- Green stripe 4 (top) -->
+      <visual name="right_stripe_7">
+        <pose>0.75 0 0.675 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.09 0.09 0.15</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0 1 0 1</ambient>
+          <diffuse>0 1 0 1</diffuse>
+          <specular>0.3 0.3 0.3 1</specular>
+          <emissive>0 0.3 0 1</emissive>
+        </material>
+      </visual>
+
+      <!-- Top Bar (Black) -->
+      <collision name="top_bar_collision">
+        <pose>0 0 0.75 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>1.5 0.08 0.08</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="top_bar_visual">
+        <pose>0 0 0.75 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>1.5 0.08 0.08</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.1 0.1 0.1 1</ambient>
+          <diffuse>0.1 0.1 0.1 1</diffuse>
+          <specular>0.2 0.2 0.2 1</specular>
+        </material>
+      </visual>
+
+    </link>
+  </model>
+
+
+    <!-- Orange Flare (obstacle before gate) -->
+    <model name="orange_flare">
+      <static>true</static>
+      <pose>-14 2 -2.25 0 0 0</pose>
+      <link name="flare_link">
+        <collision name="flare_collision">
+          <geometry>
+            <cylinder>
+              <radius>0.075</radius>
+              <length>1.5</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="flare_visual">
+          <geometry>
+            <cylinder>
+              <radius>0.075</radius>
+              <length>1.5</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>1 0.5 0 1</ambient>
+            <diffuse>1 0.5 0 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Target Zone Mat (8m x 2m green mat) -->
+    <model name="target_zone_mat">
+      <static>true</static>
+      <pose>0 6 -2.95 0 0 0</pose>
+      <link name="mat_link">
+        <visual name="mat_visual">
+          <geometry>
+            <box>
+              <size>8 2 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0 0.8 0 1</ambient>
+            <diffuse>0 0.8 0 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Drums for Target Acquisition -->
+    <!-- Blue Drum -->
+    <model name="blue_drum">
+      <static>true</static>
+      <pose>-2 6 -2.85 0 0 0</pose>
+      <link name="drum_link">
+        <collision name="drum_collision">
+          <geometry>
+            <cylinder>
+              <radius>0.3</radius>
+              <length>0.3</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="drum_visual">
+          <geometry>
+            <cylinder>
+              <radius>0.3</radius>
+              <length>0.3</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0 0 1 1</ambient>
+            <diffuse>0 0 1 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+          </material>
+        </visual>
+        <!-- Drum opening -->
+        <visual name="drum_opening">
+          <pose>0 0 0.15 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.28</radius>
+              <length>0.02</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0 0 0.5 1</ambient>
+            <diffuse>0 0 0.5 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Red Drum 1 (with pinger) -->
+    <model name="red_drum_1">
+      <static>true</static>
+      <pose>0 6 -2.85 0 0 0</pose>
+      <link name="drum_link">
+        <collision name="drum_collision">
+          <geometry>
+            <cylinder>
+              <radius>0.3</radius>
+              <length>0.3</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="drum_visual">
+          <geometry>
+            <cylinder>
+              <radius>0.3</radius>
+              <length>0.3</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>1 0 0 1</ambient>
+            <diffuse>1 0 0 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+          </material>
+        </visual>
+        <visual name="drum_opening">
+          <pose>0 0 0.15 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.28</radius>
+              <length>0.02</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.5 0 0 1</ambient>
+            <diffuse>0.5 0 0 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Red Drum 2 -->
+    <model name="red_drum_2">
+      <static>true</static>
+      <pose>2 6 -2.85 0 0 0</pose>
+      <link name="drum_link">
+        <collision name="drum_collision">
+          <geometry>
+            <cylinder>
+              <radius>0.3</radius>
+              <length>0.3</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="drum_visual">
+          <geometry>
+            <cylinder>
+              <radius>0.3</radius>
+              <length>0.3</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>1 0 0 1</ambient>
+            <diffuse>1 0 0 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+          </material>
+        </visual>
+        <visual name="drum_opening">
+          <pose>0 0 0.15 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.28</radius>
+              <length>0.02</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.5 0 0 1</ambient>
+            <diffuse>0.5 0 0 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Red Drum 3 -->
+    <model name="red_drum_3">
+      <static>true</static>
+      <pose>4 6 -2.85 0 0 0</pose>
+      <link name="drum_link">
+        <collision name="drum_collision">
+          <geometry>
+            <cylinder>
+              <radius>0.3</radius>
+              <length>0.3</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="drum_visual">
+          <geometry>
+            <cylinder>
+              <radius>0.3</radius>
+              <length>0.3</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>1 0 0 1</ambient>
+            <diffuse>1 0 0 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+          </material>
+        </visual>
+        <visual name="drum_opening">
+          <pose>0 0 0.15 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.28</radius>
+              <length>0.02</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.5 0 0 1</ambient>
+            <diffuse>0.5 0 0 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Communication & Localization Flares (Now closer together) -->
+    <!-- Red Flare -->
+    <model name="red_flare">
+      <static>true</static>
+      <pose>10 -0.6 -2.6 0 0 0</pose>
+      <link name="flare_link">
+        <collision name="flare_collision">
+          <geometry>
+            <cylinder>
+              <radius>0.008</radius>
+              <length>0.8</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="flare_visual">
+          <geometry>
+            <cylinder>
+              <radius>0.008</radius>
+              <length>0.8</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>1 0 0 1</ambient>
+            <diffuse>1 0 0 1</diffuse>
+            <specular>0.3 0.3 0.3 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Yellow Flare -->
+    <model name="yellow_flare">
+      <static>true</static>
+      <pose>10 0 -2.6 0 0 0</pose>
+      <link name="flare_link">
+        <collision name="flare_collision">
+          <geometry>
+            <cylinder>
+              <radius>0.008</radius>
+              <length>0.8</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="flare_visual">
+          <geometry>
+            <cylinder>
+              <radius>0.008</radius>
+              <length>0.8</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>1 1 0 1</ambient>
+            <diffuse>1 1 0 1</diffuse>
+            <specular>0.3 0.3 0.3 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Blue Flare -->
+    <model name="blue_flare">
+      <static>true</static>
+      <pose>10 0.6 -2.6 0 0 0</pose>
+      <link name="flare_link">
+        <collision name="flare_collision">
+          <geometry>
+            <cylinder>
+              <radius>0.008</radius>
+              <length>0.8</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="flare_visual">
+          <geometry>
+            <cylinder>
+              <radius>0.008</radius>
+              <length>0.8</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0 0 1 1</ambient>
+            <diffuse>0 0 1 1</diffuse>
+            <specular>0.3 0.3 0.3 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Golf Balls on Flares -->
+    <!-- Golf Ball on Red Flare -->
+    <model name="golf_ball_red">
+      <static>true</static>
+      <pose>10 -0.6 -2.16 0 0 0</pose>
+      <link name="ball_link">
+        <collision name="ball_collision">
+          <geometry>
+            <sphere>
+              <radius>0.021</radius>
+            </sphere>
+          </geometry>
+        </collision>
+        <visual name="ball_visual">
+          <geometry>
+            <sphere>
+              <radius>0.021</radius>
+            </sphere>
+          </geometry>
+          <material>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <specular>0.5 0.5 0.5 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Golf Ball on Yellow Flare -->
+    <model name="golf_ball_yellow">
+      <static>true</static>
+      <pose>10 0 -2.16 0 0 0</pose>
+      <link name="ball_link">
+        <collision name="ball_collision">
+          <geometry>
+            <sphere>
+              <radius>0.021</radius>
+            </sphere>
+          </geometry>
+        </collision>
+        <visual name="ball_visual">
+          <geometry>
+            <sphere>
+              <radius>0.021</radius>
+            </sphere>
+          </geometry>
+          <material>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <specular>0.5 0.5 0.5 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Golf Ball on Blue Flare -->
+    <model name="golf_ball_blue">
+      <static>true</static>
+      <pose>10 0.6 -2.16 0 0 0</pose>
+      <link name="ball_link">
+        <collision name="ball_collision">
+          <geometry>
+            <sphere>
+              <radius>0.021</radius>
+            </sphere>
+          </geometry>
+        </collision>
+        <visual name="ball_visual">
+          <geometry>
+            <sphere>
+              <radius>0.021</radius>
+            </sphere>
+          </geometry>
+          <material>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <specular>0.5 0.5 0.5 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Qualification Gate (for side arena) -->
+    <model name="qualification_gate">
+      <static>true</static>
+      <pose>-20 10 -0.5 0 0 0</pose>
+      <link name="gate_link">
+        
+        <!-- Left Post (Orange marking) -->
+        <collision name="left_post_collision">
+          <pose>-0.75 0 0 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.05 0.05 1.0</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="left_post_visual">
+          <pose>-0.75 0 0 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.05 0.05 1.0</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>1 0.5 0 1</ambient>
+            <diffuse>1 0.5 0 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+
+        <!-- Right Post (Orange marking) -->
+        <collision name="right_post_collision">
+          <pose>0.75 0 0 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.05 0.05 1.0</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="right_post_visual">
+          <pose>0.75 0 0 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.05 0.05 1.0</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>1 0.5 0 1</ambient>
+            <diffuse>1 0.5 0 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+
+        <!-- Top Bar -->
+        <collision name="top_bar_collision">
+          <pose>0 0 0.5 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>1.5 0.05 0.05</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="top_bar_visual">
+          <pose>0 0 0.5 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>1.5 0.05 0.05</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+          </material>
+        </visual>
+
+      </link>
+    </model>
+
+    <include>
+	  <uri>model://auv_slam/models/orca4_ign</uri>
+	  <pose>-20 0 -0.5 0 0 0</pose>
+    </include>
+
+  </world>
+</sdf>
