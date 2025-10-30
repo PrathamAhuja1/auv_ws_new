@@ -1,7 +1,7 @@
 # src/auv_slam/config/navigation_params.yaml
 # FIXED NAVIGATION FOR SMART SEARCH AND SHORTEST PATH
 
-smart_gate_mission:
+gate_navigator_node:
   ros__parameters:
     # Depth control
     target_depth: -1.5
