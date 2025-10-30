@@ -435,100 +435,59 @@
   
 
   <!-- Forward-facing camera for gate detection -->
-<link name="camera_forward_link">
-  <visual name="forward_camera_visual">
-    <geometry>
-      <box>
-        <size>0.02 0.05 0.05</size>
-      </box>
-    </geometry>
-    <material>
-      <ambient>0.2 0.2 0.2 1</ambient>
-    </material>
-  </visual>
-  <inertial>
-    <mass value="0.001"/>
-    <inertia ixx="0.001" ixy="0.0" ixz="0.0" iyy="0.001" iyz="0.0" izz="0.001"/>
-  </inertial>
-</link>
-
 <joint name="camera_forward_joint" type="fixed">
   <parent link="base_link"/>
   <child link="camera_forward_link"/>
-  <!-- Mount at front, facing forward -->
-  <origin xyz="0.23 0 0" rpy="0 0 0"/>
+  <!-- FIXED: Tilted 15 degrees downward to see gate below -->
+  <origin xyz="0.23 0 0" rpy="0 0.2618 0"/>
+  <!-- rpy="0 0.2618 0" = 0° roll, 15° pitch down, 0° yaw -->
 </joint>
 
 <gazebo reference="camera_forward_link">
   <sensor name="camera_forward" type="camera">
     <pose>0 0 0 0 0 0</pose>
     <camera>
-      <!-- CRITICAL FIX 1: Ultra-wide FOV for maximum visibility -->
-      <horizontal_fov>2.8</horizontal_fov>  <!-- ~160 degrees! Was 2.0 -->
+      <!-- OPTIMIZED FOV for gate detection at 12m distance -->
+      <horizontal_fov>1.91</horizontal_fov>  <!-- ~110 degrees (was 2.8) -->
       
       <image>
-        <!-- CRITICAL FIX 2: Higher resolution for better distant object detection -->
-        <width>1280</width>   <!-- Was 800 -->
-        <height>960</height>  <!-- Was 600 -->
+        <!-- High resolution for distant object detection -->
+        <width>1280</width>
+        <height>960</height>
         <format>RGB_INT8</format>
       </image>
       
-      <!-- CRITICAL FIX 3: Extended clipping range - KEY TO YOUR PROBLEM! -->
+      <!-- CRITICAL: Extended near/far clipping -->
       <clip>
-        <near>0.01</near>   <!-- Can see VERY close objects, was 0.05 -->
-        <far>100</far>      <!-- Can see VERY far objects, was 50 -->
+        <near>0.1</near>   <!-- Can see objects 10cm away -->
+        <far>50</far>      <!-- Can see objects up to 50m away -->
       </clip>
       
-      <!-- CRITICAL FIX 4: Better lens model for wide FOV -->
-      <lens>
-        <type>stereographic</type>
-        <scale_to_hfov>true</scale_to_hfov>
-        <!-- Custom projection -->
-        <custom_function>
-          <c1>1.05</c1>
-          <c2>4</c2>
-          <f>1.0</f>
-          <fun>tan</fun>
-        </custom_function>
-      </lens>
-      
-      <!-- CRITICAL FIX 5: Realistic underwater noise -->
-      <noise>
-        <type>gaussian</type>
-        <mean>0.0</mean>
-        <stddev>0.005</stddev>  <!-- Reduced noise for better detection -->
-      </noise>
-      
-      <!-- CRITICAL FIX 6: Minimal distortion for accurate detection -->
+      <!-- Minimal distortion for accurate detection -->
       <distortion>
-        <k1>-0.05</k1>  <!-- Slight barrel distortion (realistic for wide FOV) -->
-        <k2>0.01</k2>
+        <k1>0.0</k1>
+        <k2>0.0</k2>
         <k3>0.0</k3>
         <p1>0.0</p1>
         <p2>0.0</p2>
         <center>0.5 0.5</center>
       </distortion>
       
-      <!-- CRITICAL FIX 7: Enhanced image quality -->
-      <save enabled="false"/>
-      <depth_camera>
-        <output>depths</output>
-      </depth_camera>
+      <!-- Reduced noise for better detection -->
+      <noise>
+        <type>gaussian</type>
+        <mean>0.0</mean>
+        <stddev>0.003</stddev>
+      </noise>
     </camera>
     
     <always_on>1</always_on>
-    <update_rate>30</update_rate>  <!-- Good frame rate -->
+    <update_rate>30</update_rate>
     <visualize>true</visualize>
     <topic>/camera_forward/image_raw</topic>
-    
-    <!-- CRITICAL FIX 8: Performance optimization -->
-    <plugin name="camera_controller" filename="libgazebo_ros_camera.so">
-      <frame_name>camera_forward_link</frame_name>
-      <min_depth>0.01</min_depth>
-      <max_depth>100.0</max_depth>
-    </plugin>
   </sensor>
 </gazebo>
+
 
 
   <joint name="imu_joint" type="fixed">

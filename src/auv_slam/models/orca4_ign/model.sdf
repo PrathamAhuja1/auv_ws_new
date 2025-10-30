@@ -372,7 +372,7 @@
           </image>
           <clip>
             <near>0.2</near>
-            <far>4</far>
+            <far>20</far>
           </clip>
         </camera>
         <always_on>1</always_on>
