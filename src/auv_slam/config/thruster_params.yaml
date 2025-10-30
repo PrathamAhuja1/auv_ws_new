@@ -3,7 +3,7 @@
 simple_thruster_mapper:
   ros__parameters:
     # Thrust limits - INCREASED for better responsiveness
-    max_thrust: 150.0  # Increased from 10.0
+    max_thrust: 10.01
     min_thrust: -150.0
 
     thrust_scale: 15.0 

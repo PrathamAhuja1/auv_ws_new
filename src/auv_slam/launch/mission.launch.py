@@ -63,7 +63,7 @@ def generate_launch_description():
         actions=[
             Node(
                 package='auv_slam',
-                executable='_gate_navigator_node.py',
+                executable='gate_navigator_node.py',
                 name='gate_navigator_node',
                 output='screen',
                 parameters=[navig_params]
