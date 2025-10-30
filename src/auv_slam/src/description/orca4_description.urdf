@@ -463,19 +463,46 @@
   <sensor name="camera_forward" type="camera">
     <pose>0 0 0 0 0 0</pose>
     <camera>
-      <!-- Wider FOV for better gate detection -->
-      <horizontal_fov>2.0</horizontal_fov>
+      <!-- CRITICAL FIX 1: Wider FOV for long-range detection -->
+      <horizontal_fov>2.4</horizontal_fov>  <!-- ~137 degrees, was 2.0 -->
+      
       <image>
         <width>800</width>
         <height>600</height>
       </image>
+      
+      <!-- CRITICAL FIX 2: Extended clipping range -->
       <clip>
-        <near>0.1</near>
-        <far>20</far>  <!-- Increased range -->
+        <near>0.05</near>  <!-- Can see very close objects, was 0.1 -->
+        <far>50</far>      <!-- Can see very far objects, was 20 -->
       </clip>
+      
+      <!-- CRITICAL FIX 3: Better lens model for underwater -->
+      <lens>
+        <type>stereographic</type>  <!-- Better for wide FOV -->
+        <scale_to_hfov>true</scale_to_hfov>
+      </lens>
+      
+      <!-- CRITICAL FIX 4: Noise model for realistic detection -->
+      <noise>
+        <type>gaussian</type>
+        <mean>0.0</mean>
+        <stddev>0.007</stddev>
+      </noise>
+      
+      <!-- CRITICAL FIX 5: Distortion for realistic underwater optics -->
+      <distortion>
+        <k1>0.0</k1>
+        <k2>0.0</k2>
+        <k3>0.0</k3>
+        <p1>0.0</p1>
+        <p2>0.0</p2>
+        <center>0.5 0.5</center>
+      </distortion>
     </camera>
+    
     <always_on>1</always_on>
-    <update_rate>10</update_rate>
+    <update_rate>30</update_rate>  <!-- Increased from 10 for smoother detection -->
     <visualize>true</visualize>
     <topic>/camera_forward/image_raw</topic>
   </sensor>

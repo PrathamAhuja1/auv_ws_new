@@ -1,34 +1,55 @@
-# Used by: gate_detector_node.py
+# src/auv_slam/config/gate_params.yaml
+# FIXED GATE DETECTION PARAMETERS FOR LONG-RANGE DETECTION
 
 gate_detector_node:
   ros__parameters:
-    # Vision parameters
-    min_contour_area: 400
-    aspect_ratio_threshold: 2.0
+    # CRITICAL FIX 1: Reduced minimum area for distant gates
+    min_contour_area: 150  # Was 400-500, now detects smaller/distant gates
+    
+    # CRITICAL FIX 2: More lenient aspect ratio
+    aspect_ratio_threshold: 1.5  # Was 2.0, allows shorter detection
+    
+    # Gate dimensions
     gate_width_meters: 1.5
     
-    # Orange flare detection
-    flare_min_area: 300
-    flare_aspect_min: 3.0
+    # CRITICAL FIX 3: Reduced flare detection threshold
+    flare_min_area: 100  # Was 300, detects distant flares
+    flare_aspect_min: 2.0  # Was 3.0, more lenient
     flare_danger_threshold: 0.3
     
     # Debug
     publish_debug: true
     
-    # HSV color ranges (for underwater conditions)
-    # Red stripes (gate port side)
+    # CRITICAL FIX 4: Enhanced HSV ranges for underwater visibility
+    # Red stripes (gate port side) - ENHANCED
     red_hsv:
-      lower1: [0, 100, 100]
-      upper1: [10, 255, 255]
-      lower2: [160, 100, 100]
+      # Lower range (bright reds)
+      lower1: [0, 80, 80]    # Was [0, 100, 100], now more sensitive
+      upper1: [15, 255, 255] # Was [10, 255, 255], wider range
+      # Upper range (dark reds)
+      lower2: [155, 80, 80]  # Was [160, 100, 100], catches more reds
       upper2: [180, 255, 255]
     
-    # Green stripes (gate starboard side)
+    # Green stripes (gate starboard side) - ENHANCED
     green_hsv:
-      lower: [40, 50, 50]
-      upper: [90, 255, 255]
+      lower: [35, 40, 40]    # Was [40, 50, 50], more sensitive
+      upper: [95, 255, 255]  # Was [90, 255, 255], wider range
     
-    # Orange flare (MUST AVOID)
+    # Orange flare (MUST AVOID) - ENHANCED
     orange_hsv:
-      lower: [10, 100, 100]
-      upper: [25, 255, 255]
+      lower: [8, 80, 80]     # Was [10, 100, 100], catches more orange
+      upper: [28, 255, 255]  # Was [25, 255, 255], wider range
+    
+    # CRITICAL FIX 5: Adaptive detection parameters
+    adaptive_threshold: true
+    use_clahe: true  # Contrast Limited Adaptive Histogram Equalization
+    clahe_clip_limit: 2.0
+    clahe_tile_size: 8
+    
+    # CRITICAL FIX 6: Multi-scale detection
+    use_pyramid: true
+    pyramid_levels: 2  # Check image at multiple scales
+    
+    # CRITICAL FIX 7: Temporal filtering
+    detection_history_size: 5  # Smooth detections over frames
+    min_detections_for_confirm: 2  # Require 2/5 frames to confirm

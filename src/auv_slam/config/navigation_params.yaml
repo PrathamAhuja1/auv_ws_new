@@ -1,31 +1,49 @@
-# Used by: gate_navigator_node.py & BT.py
-# OPTIMIZED FOR SPEED AND ACCURACY
+# FIXED NAVIGATION PARAMETERS FOR BETTER SEARCH AND APPROACH
+# Replace: src/auv_slam/config/navigation_params.yaml
 
 gate_detection_controller:
   ros__parameters:
-    # Depth control - Tuned to prevent oscillation
+    # ============================================================
+    # Depth control - Stable at gate depth
+    # ============================================================
     target_depth: -1.5
-    depth_correction_gain: 0.8  # Reduced to prevent oscillation
-    depth_tolerance: 0.2  # Slightly looser for stability
-
-    # Speed settings - OPTIMIZED FOR FASTEST COMPLETION
-    search_forward_speed: 0.5  # Increased from 0.4
-    approach_speed: 0.6  # Increased from 0.5
-    passing_speed: 0.8  # Increased from 0.6
-    passing_duration: 6.0  # Increased to ensure full passage
-
-    # Alignment - Tighter for accuracy
-    alignment_threshold: 0.10  # Tighter from 0.2
-    yaw_correction_gain: 1.0  # Increased from 0.6
-
+    depth_correction_gain: 0.8
+    depth_tolerance: 0.2
+    
+    # ============================================================
+    # CRITICAL FIX 1: Enhanced search behavior
+    # ============================================================
+    search_forward_speed: 0.4      # Moderate speed while searching
+    search_scan_enabled: true      # Enable scanning rotation
+    search_scan_speed: 0.15        # Gentle rotation while searching
+    search_timeout: 90.0           # Increased from 60s - give more time to find gate
+    
+    # ============================================================
+    # CRITICAL FIX 2: Approach speeds optimized
+    # ============================================================
+    approach_speed: 0.6            # Good forward speed when gate visible
+    passing_speed: 0.8             # Full speed through gate
+    passing_duration: 6.0          # Ensure complete passage
+    
+    # ============================================================
+    # CRITICAL FIX 3: Alignment - continuous correction
+    # ============================================================
+    alignment_threshold: 0.10      # Tighter alignment (not used in new approach)
+    yaw_correction_gain: 1.2       # Higher gain for responsive turning
+    
+    # ============================================================
     # Distance thresholds
-    safe_distance_threshold: 3.0
-    passing_distance_threshold: 1.2  # Start passing closer
-
-    # Flare avoidance
+    # ============================================================
+    safe_distance_threshold: 3.0   # Start "passing" mode at 3m
+    passing_distance_threshold: 1.2
+    
+    # ============================================================
+    # CRITICAL FIX 4: Gate lost handling
+    # ============================================================
+    gate_lost_timeout: 3.0         # Return to search if gate lost for 3s
+    
+    # ============================================================
+    # Flare avoidance (if detected)
+    # ============================================================
     flare_avoidance_gain: 0.8
     flare_avoidance_duration: 3.0
-
-    # Timeouts - Reduced for faster mission
-    gate_lost_timeout: 2.0
-    search_timeout: 45.0  # Reduced from 60.0
