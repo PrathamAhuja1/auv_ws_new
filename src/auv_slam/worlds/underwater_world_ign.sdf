@@ -246,285 +246,349 @@
     <!-- Navigation Gate (at bottom, ~12m from start) -->
     <!-- Navigation Gate (150cm wide x 150cm tall with striped markings) -->
     <model name="navigation_gate">
-    <static>true</static>
-    <pose>-8 0 -1.5 0 0 0</pose>
-    <link name="gate_link">
-      
-      <!-- Left Post (Red stripes - Port side) -->
-      <collision name="left_post_collision">
-        <pose>-0.75 0 0 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.08 0.08 1.5</size>
-          </box>
-        </geometry>
-      </collision>
-      
-      <!-- Red stripe 1 (bottom) -->
-      <visual name="left_stripe_1">
-        <pose>-0.75 0 -0.60 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.09 0.09 0.30</size>
-          </box>
-        </geometry>
-        <material>
-          <ambient>1 0 0 1</ambient>
-          <diffuse>1 0 0 1</diffuse>
-          <specular>0.3 0.3 0.3 1</specular>
-          <emissive>0.3 0 0 1</emissive>
-        </material>
-      </visual>
-      
-      <!-- Black stripe 1 -->
-      <visual name="left_stripe_2">
-        <pose>-0.75 0 -0.375 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.09 0.09 0.15</size>
-          </box>
-        </geometry>
-        <material>
-          <ambient>0.1 0.1 0.1 1</ambient>
-          <diffuse>0.1 0.1 0.1 1</diffuse>
-          <specular>0.1 0.1 0.1 1</specular>
-        </material>
-      </visual>
-      
-      <!-- Red stripe 2 -->
-      <visual name="left_stripe_3">
-        <pose>-0.75 0 -0.15 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.09 0.09 0.30</size>
-          </box>
-        </geometry>
-        <material>
-          <ambient>1 0 0 1</ambient>
-          <diffuse>1 0 0 1</diffuse>
-          <specular>0.3 0.3 0.3 1</specular>
-          <emissive>0.3 0 0 1</emissive>
-        </material>
-      </visual>
-      
-      <!-- Black stripe 2 -->
-      <visual name="left_stripe_4">
-        <pose>-0.75 0 0.075 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.09 0.09 0.15</size>
-          </box>
-        </geometry>
-        <material>
-          <ambient>0.1 0.1 0.1 1</ambient>
-          <diffuse>0.1 0.1 0.1 1</diffuse>
-          <specular>0.1 0.1 0.1 1</specular>
-        </material>
-      </visual>
-      
-      <!-- Red stripe 3 -->
-      <visual name="left_stripe_5">
-        <pose>-0.75 0 0.30 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.09 0.09 0.30</size>
-          </box>
-        </geometry>
-        <material>
-          <ambient>1 0 0 1</ambient>
-          <diffuse>1 0 0 1</diffuse>
-          <specular>0.3 0.3 0.3 1</specular>
-          <emissive>0.3 0 0 1</emissive>
-        </material>
-      </visual>
-      
-      <!-- Black stripe 3 -->
-      <visual name="left_stripe_6">
-        <pose>-0.75 0 0.525 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.09 0.09 0.15</size>
-          </box>
-        </geometry>
-        <material>
-          <ambient>0.1 0.1 0.1 1</ambient>
-          <diffuse>0.1 0.1 0.1 1</diffuse>
-          <specular>0.1 0.1 0.1 1</specular>
-        </material>
-      </visual>
-      
-      <!-- Red stripe 4 (top) -->
-      <visual name="left_stripe_7">
-        <pose>-0.75 0 0.675 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.09 0.09 0.15</size>
-          </box>
-        </geometry>
-        <material>
-          <ambient>1 0 0 1</ambient>
-          <diffuse>1 0 0 1</diffuse>
-          <specular>0.3 0.3 0.3 1</specular>
-          <emissive>0.3 0 0 1</emissive>
-        </material>
-      </visual>
+      <static>true</static>
+      <!-- Position: 12m ahead of starting zone, centered -->
+      <pose>-8 0 -1.5 0 0 0</pose>
+      <link name="gate_link">
+        
+        <!-- ==================== LEFT POST (RED - PORT SIDE) ==================== -->
+        <collision name="left_post_collision">
+          <pose>-0.75 0 0 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.04 0.04 1.5</size>  <!-- ✅ FIXED: 4cm posts per diagram -->
+            </box>
+          </geometry>
+        </collision>
+        
+        <!-- RED STRIPE PATTERN (Bottom to Top): -->
+        <!-- Stripe 1: RED 20cm (bottom) -->
+        <visual name="left_red_1">
+          <pose>-0.75 0 -0.65 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.07 0.07 0.20</size>  <!-- Slightly oversized for visibility -->
+            </box>
+          </geometry>
+          <material>
+            <ambient>1.0 0.0 0.0 1</ambient>
+            <diffuse>1.0 0.0 0.0 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+            <emissive>0.7 0.0 0.0 1</emissive>  <!-- ✅ BRIGHT & GLOWING -->
+          </material>
+        </visual>
+        
+        <!-- Stripe 2: BLACK 10cm -->
+        <visual name="left_black_1">
+          <pose>-0.75 0 -0.50 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.07 0.07 0.10</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.02 0.02 0.02 1</ambient>
+            <diffuse>0.02 0.02 0.02 1</diffuse>
+            <specular>0.05 0.05 0.05 1</specular>
+          </material>
+        </visual>
+        
+        <!-- Stripe 3: RED 20cm -->
+        <visual name="left_red_2">
+          <pose>-0.75 0 -0.30 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.07 0.07 0.20</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>1.0 0.0 0.0 1</ambient>
+            <diffuse>1.0 0.0 0.0 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+            <emissive>0.7 0.0 0.0 1</emissive>
+          </material>
+        </visual>
+        
+        <!-- Stripe 4: BLACK 10cm -->
+        <visual name="left_black_2">
+          <pose>-0.75 0 -0.10 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.07 0.07 0.10</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.02 0.02 0.02 1</ambient>
+            <diffuse>0.02 0.02 0.02 1</diffuse>
+            <specular>0.05 0.05 0.05 1</specular>
+          </material>
+        </visual>
+        
+        <!-- Stripe 5: RED 20cm -->
+        <visual name="left_red_3">
+          <pose>-0.75 0 0.10 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.07 0.07 0.20</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>1.0 0.0 0.0 1</ambient>
+            <diffuse>1.0 0.0 0.0 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+            <emissive>0.7 0.0 0.0 1</emissive>
+          </material>
+        </visual>
+        
+        <!-- Stripe 6: BLACK 10cm -->
+        <visual name="left_black_3">
+          <pose>-0.75 0 0.30 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.07 0.07 0.10</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.02 0.02 0.02 1</ambient>
+            <diffuse>0.02 0.02 0.02 1</diffuse>
+            <specular>0.05 0.05 0.05 1</specular>
+          </material>
+        </visual>
+        
+        <!-- Stripe 7: RED 20cm -->
+        <visual name="left_red_4">
+          <pose>-0.75 0 0.50 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.07 0.07 0.20</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>1.0 0.0 0.0 1</ambient>
+            <diffuse>1.0 0.0 0.0 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+            <emissive>0.7 0.0 0.0 1</emissive>
+          </material>
+        </visual>
+        
+        <!-- Stripe 8: BLACK 10cm -->
+        <visual name="left_black_4">
+          <pose>-0.75 0 0.60 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.07 0.07 0.10</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.02 0.02 0.02 1</ambient>
+            <diffuse>0.02 0.02 0.02 1</diffuse>
+            <specular>0.05 0.05 0.05 1</specular>
+          </material>
+        </visual>
+        
+        <!-- Stripe 9: RED 10cm (top, partial) -->
+        <visual name="left_red_5">
+          <pose>-0.75 0 0.70 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.07 0.07 0.10</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>1.0 0.0 0.0 1</ambient>
+            <diffuse>1.0 0.0 0.0 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+            <emissive>0.7 0.0 0.0 1</emissive>
+          </material>
+        </visual>
 
-      <!-- Right Post (Green stripes - Starboard side) -->
-      <!-- Base structure with thicker profile -->
-      <collision name="right_post_collision">
-        <pose>0.75 0 0 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.08 0.08 1.5</size>
-          </box>
-        </geometry>
-      </collision>
-      
-      <!-- Green stripe 1 (bottom) -->
-      <visual name="right_stripe_1">
-        <pose>0.75 0 -0.60 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.09 0.09 0.30</size>
-          </box>
-        </geometry>
-        <material>
-          <ambient>0 1 0 1</ambient>
-          <diffuse>0 1 0 1</diffuse>
-          <specular>0.3 0.3 0.3 1</specular>
-          <emissive>0 0.3 0 1</emissive>
-        </material>
-      </visual>
-      
-      <!-- Black stripe 1 -->
-      <visual name="right_stripe_2">
-        <pose>0.75 0 -0.375 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.09 0.09 0.15</size>
-          </box>
-        </geometry>
-        <material>
-          <ambient>0.1 0.1 0.1 1</ambient>
-          <diffuse>0.1 0.1 0.1 1</diffuse>
-          <specular>0.1 0.1 0.1 1</specular>
-        </material>
-      </visual>
-      
-      <!-- Green stripe 2 -->
-      <visual name="right_stripe_3">
-        <pose>0.75 0 -0.15 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.09 0.09 0.30</size>
-          </box>
-        </geometry>
-        <material>
-          <ambient>0 1 0 1</ambient>
-          <diffuse>0 1 0 1</diffuse>
-          <specular>0.3 0.3 0.3 1</specular>
-          <emissive>0 0.3 0 1</emissive>
-        </material>
-      </visual>
-      
-      <!-- Black stripe 2 -->
-      <visual name="right_stripe_4">
-        <pose>0.75 0 0.075 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.09 0.09 0.15</size>
-          </box>
-        </geometry>
-        <material>
-          <ambient>0.1 0.1 0.1 1</ambient>
-          <diffuse>0.1 0.1 0.1 1</diffuse>
-          <specular>0.1 0.1 0.1 1</specular>
-        </material>
-      </visual>
-      
-      <!-- Green stripe 3 -->
-      <visual name="right_stripe_5">
-        <pose>0.75 0 0.30 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.09 0.09 0.30</size>
-          </box>
-        </geometry>
-        <material>
-          <ambient>0 1 0 1</ambient>
-          <diffuse>0 1 0 1</diffuse>
-          <specular>0.3 0.3 0.3 1</specular>
-          <emissive>0 0.3 0 1</emissive>
-        </material>
-      </visual>
-      
-      <!-- Black stripe 3 -->
-      <visual name="right_stripe_6">
-        <pose>0.75 0 0.525 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.09 0.09 0.15</size>
-          </box>
-        </geometry>
-        <material>
-          <ambient>0.1 0.1 0.1 1</ambient>
-          <diffuse>0.1 0.1 0.1 1</diffuse>
-          <specular>0.1 0.1 0.1 1</specular>
-        </material>
-      </visual>
-      
-      <!-- Green stripe 4 (top) -->
-      <visual name="right_stripe_7">
-        <pose>0.75 0 0.675 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.09 0.09 0.15</size>
-          </box>
-        </geometry>
-        <material>
-          <ambient>0 1 0 1</ambient>
-          <diffuse>0 1 0 1</diffuse>
-          <specular>0.3 0.3 0.3 1</specular>
-          <emissive>0 0.3 0 1</emissive>
-        </material>
-      </visual>
+        <!-- ==================== RIGHT POST (GREEN - STARBOARD SIDE) ==================== -->
+        <collision name="right_post_collision">
+          <pose>0.75 0 0 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.04 0.04 1.5</size>  <!-- ✅ FIXED: 4cm posts per diagram -->
+            </box>
+          </geometry>
+        </collision>
+        
+        <!-- GREEN STRIPE PATTERN (Bottom to Top): -->
+        <!-- Stripe 1: GREEN 20cm (bottom) -->
+        <visual name="right_green_1">
+          <pose>0.75 0 -0.65 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.07 0.07 0.20</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.0 1.0 0.0 1</ambient>
+            <diffuse>0.0 1.0 0.0 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+            <emissive>0.0 0.7 0.0 1</emissive>  <!-- ✅ BRIGHT & GLOWING -->
+          </material>
+        </visual>
+        
+        <!-- Stripe 2: BLACK 10cm -->
+        <visual name="right_black_1">
+          <pose>0.75 0 -0.50 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.07 0.07 0.10</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.02 0.02 0.02 1</ambient>
+            <diffuse>0.02 0.02 0.02 1</diffuse>
+            <specular>0.05 0.05 0.05 1</specular>
+          </material>
+        </visual>
+        
+        <!-- Stripe 3: GREEN 20cm -->
+        <visual name="right_green_2">
+          <pose>0.75 0 -0.30 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.07 0.07 0.20</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.0 1.0 0.0 1</ambient>
+            <diffuse>0.0 1.0 0.0 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+            <emissive>0.0 0.7 0.0 1</emissive>
+          </material>
+        </visual>
+        
+        <!-- Stripe 4: BLACK 10cm -->
+        <visual name="right_black_2">
+          <pose>0.75 0 -0.10 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.07 0.07 0.10</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.02 0.02 0.02 1</ambient>
+            <diffuse>0.02 0.02 0.02 1</diffuse>
+            <specular>0.05 0.05 0.05 1</specular>
+          </material>
+        </visual>
+        
+        <!-- Stripe 5: GREEN 20cm -->
+        <visual name="right_green_3">
+          <pose>0.75 0 0.10 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.07 0.07 0.20</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.0 1.0 0.0 1</ambient>
+            <diffuse>0.0 1.0 0.0 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+            <emissive>0.0 0.7 0.0 1</emissive>
+          </material>
+        </visual>
+        
+        <!-- Stripe 6: BLACK 10cm -->
+        <visual name="right_black_3">
+          <pose>0.75 0 0.30 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.07 0.07 0.10</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.02 0.02 0.02 1</ambient>
+            <diffuse>0.02 0.02 0.02 1</diffuse>
+            <specular>0.05 0.05 0.05 1</specular>
+          </material>
+        </visual>
+        
+        <!-- Stripe 7: GREEN 20cm -->
+        <visual name="right_green_4">
+          <pose>0.75 0 0.50 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.07 0.07 0.20</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.0 1.0 0.0 1</ambient>
+            <diffuse>0.0 1.0 0.0 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+            <emissive>0.0 0.7 0.0 1</emissive>
+          </material>
+        </visual>
+        
+        <!-- Stripe 8: BLACK 10cm -->
+        <visual name="right_black_4">
+          <pose>0.75 0 0.60 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.07 0.07 0.10</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.02 0.02 0.02 1</ambient>
+            <diffuse>0.02 0.02 0.02 1</diffuse>
+            <specular>0.05 0.05 0.05 1</specular>
+          </material>
+        </visual>
+        
+        <!-- Stripe 9: GREEN 10cm (top, partial) -->
+        <visual name="right_green_5">
+          <pose>0.75 0 0.70 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.07 0.07 0.10</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.0 1.0 0.0 1</ambient>
+            <diffuse>0.0 1.0 0.0 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+            <emissive>0.0 0.7 0.0 1</emissive>
+          </material>
+        </visual>
 
-      <!-- Top Bar (Black) -->
-      <collision name="top_bar_collision">
-        <pose>0 0 0.75 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>1.5 0.08 0.08</size>
-          </box>
-        </geometry>
-      </collision>
-      <visual name="top_bar_visual">
-        <pose>0 0 0.75 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>1.5 0.08 0.08</size>
-          </box>
-        </geometry>
-        <material>
-          <ambient>0.1 0.1 0.1 1</ambient>
-          <diffuse>0.1 0.1 0.1 1</diffuse>
-          <specular>0.2 0.2 0.2 1</specular>
-        </material>
-      </visual>
+        <!-- ==================== TOP BAR (BLACK) ==================== -->
+        <collision name="top_bar_collision">
+          <pose>0 0 0.75 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>1.5 0.04 0.04</size>  <!-- ✅ FIXED: 4cm bar per diagram -->
+            </box>
+          </geometry>
+        </collision>
+        <visual name="top_bar_visual">
+          <pose>0 0 0.75 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>1.5 0.04 0.04</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.02 0.02 0.02 1</ambient>
+            <diffuse>0.02 0.02 0.02 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
 
-    </link>
-  </model>
+      </link>
+    </model>
 
 
     <!-- Orange Flare (obstacle before gate) -->
     <model name="orange_flare">
       <static>true</static>
-      <pose>-14 2 -2.25 0 0 0</pose>
+      <pose>-14 2 -2.25 0 0 0</pose>  <!-- Matches diagram: between start and gate -->
       <link name="flare_link">
         <collision name="flare_collision">
           <geometry>
             <cylinder>
-              <radius>0.075</radius>
+              <radius>0.08</radius>  <!-- Made slightly thicker for detection -->
               <length>1.5</length>
             </cylinder>
           </geometry>
@@ -532,14 +596,31 @@
         <visual name="flare_visual">
           <geometry>
             <cylinder>
-              <radius>0.075</radius>
+              <radius>0.08</radius>
               <length>1.5</length>
             </cylinder>
           </geometry>
           <material>
-            <ambient>1 0.5 0 1</ambient>
-            <diffuse>1 0.5 0 1</diffuse>
-            <specular>0.2 0.2 0.2 1</specular>
+            <ambient>1.0 0.5 0.0 1</ambient>  <!-- Bright orange -->
+            <diffuse>1.0 0.5 0.0 1</diffuse>
+            <specular>0.8 0.4 0.0 1</specular>
+            <emissive>0.8 0.4 0.0 1</emissive>  <!-- ✅ GLOWING for detection -->
+          </material>
+        </visual>
+        
+        <!-- Top cap for better visual detection -->
+        <visual name="flare_cap">
+          <pose>0 0 0.75 0 0 0</pose>
+          <geometry>
+            <sphere>
+              <radius>0.10</radius>
+            </sphere>
+          </geometry>
+          <material>
+            <ambient>1.0 0.3 0.0 1</ambient>
+            <diffuse>1.0 0.3 0.0 1</diffuse>
+            <specular>0.9 0.3 0.0 1</specular>
+            <emissive>1.0 0.4 0.0 1</emissive>  <!-- Extra bright top -->
           </material>
         </visual>
       </link>

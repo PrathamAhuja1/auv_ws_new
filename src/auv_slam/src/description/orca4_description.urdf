@@ -460,20 +460,44 @@
 </link>
 
 <!-- Camera Joint - Fixed to base_link, tilted 15° down for gate detection -->
+<link name="camera_forward_link">
+  <visual name="camera_forward_visual">
+    <geometry>
+      <box size="0.03 0.06 0.03"/>
+    </geometry>
+    <material name="camera_gray">
+      <color rgba="0.3 0.3 0.3 1.0"/>
+    </material>
+  </visual>
+  
+  <collision name="camera_forward_collision">
+    <geometry>
+      <box size="0.03 0.06 0.03"/>
+    </geometry>
+  </collision>
+  
+  <inertial>
+    <mass value="0.015"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <inertia ixx="0.00001" ixy="0.0" ixz="0.0" 
+             iyy="0.00001" iyz="0.0" izz="0.00001"/>
+  </inertial>
+</link>
+
+<!-- CRITICAL FIX: Camera looks STRAIGHT AHEAD (rpy="0 0 0") -->
 <joint name="camera_forward_joint" type="fixed">
   <parent link="base_link"/>
   <child link="camera_forward_link"/>
-  <!-- Position: 23cm forward from center
-       Orientation: 15° pitch down (0.2618 rad) to see gate below horizon -->
-  <origin xyz="0.23 0 0" rpy="0 0.2618 0"/>
+  <!-- Position: 23cm forward, NO PITCH DOWN -->
+  <origin xyz="0.23 0 0" rpy="0 0 0"/>
 </joint>
 
-<!-- Camera Sensor Plugin -->
+<!-- Camera Sensor Plugin - Optimized for 12m gate detection -->
 <gazebo reference="camera_forward_link">
   <sensor name="camera_forward" type="camera">
     <pose>0 0 0 0 0 0</pose>
     <camera>
-      <!-- Optimized FOV for gate detection at long range (12m+) -->
+      <!-- Wide FOV for better gate acquisition -->
       <horizontal_fov>1.91</horizontal_fov>  <!-- 109.4 degrees -->
       
       <image>
@@ -482,13 +506,13 @@
         <format>RGB_INT8</format>
       </image>
       
-      <!-- Extended clipping planes for long-range detection -->
+      <!-- Extended clipping for long-range -->
       <clip>
-        <near>0.1</near>   <!-- 10cm minimum -->
-        <far>50.0</far>    <!-- 50m maximum -->
+        <near>0.1</near>
+        <far>50.0</far>
       </clip>
       
-      <!-- Camera intrinsics -->
+      <!-- Standard pinhole lens -->
       <lens>
         <type>custom</type>
         <custom_function>
@@ -502,7 +526,7 @@
         <env_texture_size>512</env_texture_size>
       </lens>
       
-      <!-- Minimal distortion for accurate color detection -->
+      <!-- Minimal distortion -->
       <distortion>
         <k1>0.0</k1>
         <k2>0.0</k2>
@@ -512,14 +536,13 @@
         <center>0.5 0.5</center>
       </distortion>
       
-      <!-- Low noise for better HSV color detection -->
+      <!-- Low noise for HSV detection -->
       <noise>
         <type>gaussian</type>
         <mean>0.0</mean>
         <stddev>0.003</stddev>
       </noise>
       
-      <!-- Camera frame for ROS -->
       <optical_frame_id>camera_forward_link</optical_frame_id>
     </camera>
     

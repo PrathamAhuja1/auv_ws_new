@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Complete Autonomous Mission Launch File
-Runs ALL components needed for autonomous operation
+Debug Mission Launch - Includes rqt_image_view for gate debugging
+This launch file starts the full mission WITH visual debugging tools
 """
 
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, TimerAction, ExecuteProcess
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
-from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, TimerAction
+from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
     auv_slam_share = get_package_share_directory('auv_slam')
@@ -18,8 +18,14 @@ def generate_launch_description():
     # Config paths
     thruster_params = os.path.join(auv_slam_share, 'config', 'thruster_params.yaml')
     gate_params = os.path.join(auv_slam_share, 'config', 'gate_params.yaml')
-    flare_params = os.path.join(auv_slam_share, 'config', 'flare_params.yaml')
-    navig_params= os.path.join(auv_slam_share, 'config', 'navigation_params.yaml')
+    navig_params = os.path.join(auv_slam_share, 'config', 'navigation_params.yaml')
+    
+    # Launch arguments
+    declare_enable_debug = DeclareLaunchArgument(
+        'enable_debug_view',
+        default_value='true',
+        description='Launch rqt_image_view for gate debugging'
+    )
     
     # 1. Simulation (Gazebo + RViz)
     display_launch = IncludeLaunchDescription(
@@ -28,29 +34,17 @@ def generate_launch_description():
         ),
         launch_arguments={'use_sim_time': 'True'}.items()
     )
-
-# Gazebo-ROS Bridge
-#    bridge = Node(
-#        package='ros_gz_bridge',
-#        executable='parameter_bridge',
-#        arguments=[
-#            '--ros-args',
-#            '-p', f'config_file:={os.path.join(auv_slam_share, "config", "gz_bridge.yaml")}'
-#        ],
-#        output='screen',
-#        parameters=[{'use_sim_time': True}]
-#    )
-
-    # 2. Fixed Thruster Mapper
+    
+    # 2. Thruster Mapper
     thruster_mapper = Node(
         package='auv_slam',
         executable='simple_thruster_mapper.py',
-        name='fixed_thruster_mapper',
+        name='thruster_mapper',
         output='screen',
         parameters=[thruster_params]
     )
     
-    # 3. Gate Detector
+    # 3. ULTRA-FIXED Gate Detector
     gate_detector = Node(
         package='auv_slam',
         executable='gate_detector_node.py',
@@ -58,8 +52,10 @@ def generate_launch_description():
         output='screen',
         parameters=[gate_params]
     )
+    
+    # 4. Gate Navigator (delayed start)
     gate_navigator = TimerAction(
-        period=3.0,  # Wait 3 seconds for detection to initialize
+        period=3.0,
         actions=[
             Node(
                 package='auv_slam',
@@ -71,17 +67,7 @@ def generate_launch_description():
         ]
     )
     
-    # 4. Flare Detector
-    flare_detector = Node(
-        package='auv_slam',
-        executable='flare_detection.py',
-        name='flare_detector_node',
-        output='screen',
-        parameters=[flare_params]
-    )
-
-    
-    # 6. Safety Monitor
+    # 5. Safety Monitor
     safety_monitor = Node(
         package='auv_slam',
         executable='safety_monitor_node.py',
@@ -97,23 +83,38 @@ def generate_launch_description():
         }]
     )
     
-    # 7. Diagnostic Node
-    #diagnostic = Node(
-    #   package='auv_slam',
-    #    executable='diagnostic_node.py',
-    #    name='diagnostic_node',
-    #    output='screen'
-    #)
+    # 6. rqt_image_view for gate debug visualization
+    rqt_image_view = ExecuteProcess(
+        cmd=['rqt_image_view', '/gate/debug_image'],
+        output='screen',
+        shell=False
+    )
     
+    # 7. Optional: Raw camera view
+    rqt_raw_camera = ExecuteProcess(
+        cmd=['rqt_image_view', '/camera_forward/image_raw'],
+        output='screen',
+        shell=False
+    )
+    diagnostic_node= Node(
+        package='auv_slam',
+        executable='diagnostic_node.py',
+        name='diagnostic_node',
+        output='screen',
+        parameters=[thruster_params]
+    )
+             
     return LaunchDescription([
+        declare_enable_debug,
         display_launch,
-    #    bridge,
         thruster_mapper,
         gate_detector,
-    #    gate_mission,
-         gate_navigator,
-    #    flare_detector,
-    #    mission_controller,
+        gate_navigator,
         safety_monitor,
-    #    diagnostic,
+    #    diagnostic_node,
+        # Debug visualization tools (delayed start to let everything initialize)
+        TimerAction(
+            period=5.0,
+            actions=[rqt_image_view]
+        ),
     ])
