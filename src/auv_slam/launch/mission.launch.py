@@ -62,7 +62,7 @@ def generate_launch_description():
                 executable='gate_navigator_node.py',
                 name='gate_navigator_node',
                 output='screen',
-                parameters=[navig_params]
+                parameters=[gate_params]
             )
         ]
     )

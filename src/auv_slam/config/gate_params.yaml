@@ -1,25 +1,54 @@
-# FIXED Gate Detection Parameters for Gazebo
-# Optimized for 12m detection distance
-
 gate_detector_node:
   ros__parameters:
-    # CRITICAL: Ultra-low threshold for distant detection
-    min_contour_area: 15
+    # === NEW: TIGHTER HSV RANGES ===
+    # These now require higher saturation (S > 120) and value (V > 70) 
+    # to avoid dim/dark objects and flares.
     
-    # Aspect ratio: vertical stripes (h/w > 1.0)
-    aspect_ratio_threshold: 0.9
+    # Red (Hue: 0-10 and 170-180)
+    red_lower1: [0, 120, 70]
+    red_upper1: [10, 255, 255]
+    red_lower2: [170, 120, 70]
+    red_upper2: [180, 255, 255]
+    
+    # Green (Hue: 35-85)
+    green_lower: [35, 100, 70]
+    green_upper: [85, 255, 255]
+    
+    # Orange Flare (Hue: 11-25, distinct from red)
+    orange_lower: [11, 100, 100]
+    orange_upper: [25, 255, 255]
+    
+    # === NEW: STRICTER DETECTION PARAMETERS ===
+    # This filters out small, non-vertical objects (like drums)
+    
+    # Min area for a confident stripe (filters small noise)
+    min_area_strict: 75
+    
+    # Min area for a relaxed search (if nothing is found)
+    min_area_relaxed: 25
+    
+    # Aspect ratio (h/w). We demand a 1.5:1 vertical rectangle.
+    aspect_threshold: 1.5
     
     # Gate physical dimensions
     gate_width_meters: 1.5
     
-    # Flare detection (orange obstacle)
-    flare_min_area: 30
-    flare_aspect_min: 2.0
-    flare_danger_threshold: 0.3
-    
-    # Always publish debug for troubleshooting
-    publish_debug: true
-    
-    # Fast temporal filtering (immediate response)
+    # Temporal filtering
     detection_history_size: 3
-    min_detections_for_confirm: 1  # Accept immediately
+    min_detections_for_confirm: 1
+
+gate_navigator_node:
+  ros__parameters:
+    # === Parameters for YOUR gate_navigator_node.py ===
+    target_depth: -1.5
+    depth_correction_gain: 1.5
+    search_forward_speed: 0.5
+    search_rotation_speed: 0.15
+    approach_speed: 0.7
+    passing_speed: 1.0
+    passing_duration: 8.0
+    yaw_correction_gain: 1.2
+    approach_distance: 3.0
+    passing_distance: 1.5
+    flare_avoidance_gain: 0.8
+    flare_avoidance_duration: 3.0
