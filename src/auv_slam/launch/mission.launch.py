@@ -64,7 +64,7 @@ def generate_launch_description():
             Node(
                 package='auv_slam',
                 executable='_gate_navigator_node.py',
-                name='_gate_navigator_node',
+                name='gate_navigator_node',
                 output='screen',
                 parameters=[navig_params]
             )
@@ -79,15 +79,7 @@ def generate_launch_description():
         output='screen',
         parameters=[flare_params]
     )
-    
-    # 5. FIXED Autonomous Mission Controller (BT.py replacement)
-    gate_mission = Node(
-        package='auv_slam',
-        executable='BT.py',
-        name='gate_detection_controller',
-        output='screen',
-        parameters=[navig_params]
-    )
+
     
     # 6. Safety Monitor
     safety_monitor = Node(
@@ -118,8 +110,8 @@ def generate_launch_description():
     #    bridge,
         thruster_mapper,
         gate_detector,
-        gate_mission,
-    #     gate_navigator,
+    #    gate_mission,
+         gate_navigator,
     #    flare_detector,
     #    mission_controller,
         safety_monitor,

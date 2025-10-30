@@ -1,28 +1,31 @@
 #!/usr/bin/env python3
 """
-FIXED Gate Detector Node - Typo corrected
-Line 109: get_Logger() -> get_logger()
+SAUVC Gate Detector Node - Optimized for Competition
+Detects 150cm x 150cm gate with red (port) and green (starboard) stripes
+Provides alignment error and distance estimation for navigation
 """
 
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image, CameraInfo
-from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import Bool, Float32, String
+from geometry_msgs.msg import Point
 from cv_bridge import CvBridge, CvBridgeError
 import cv2
 import numpy as np
+from collections import deque
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 
-class FixedGateDetectorNode(Node):
+
+class GateDetectorNode(Node):
     def __init__(self):
-        super().__init__('fixed_gate_detector_node')
+        super().__init__('gate_detector_node')
         self.bridge = CvBridge()
         self.camera_matrix = None
         self.image_width = None
         self.image_height = None
         
-        # FIXED PARAMETERS
+        # Parameters from config
         self.declare_parameter('min_contour_area', 50)
         self.declare_parameter('aspect_ratio_threshold', 0.8)
         self.declare_parameter('gate_width_meters', 1.5)
@@ -30,31 +33,37 @@ class FixedGateDetectorNode(Node):
         self.declare_parameter('flare_aspect_min', 1.5)
         self.declare_parameter('flare_danger_threshold', 0.3)
         self.declare_parameter('publish_debug', True)
+        self.declare_parameter('detection_history_size', 5)
+        self.declare_parameter('min_detections_for_confirm', 2)
         
         self.min_area = self.get_parameter('min_contour_area').value
         self.aspect_threshold = self.get_parameter('aspect_ratio_threshold').value
         self.gate_width = self.get_parameter('gate_width_meters').value
         self.flare_min_area = self.get_parameter('flare_min_area').value
         self.flare_aspect_min = self.get_parameter('flare_aspect_min').value
-        self.flare_danger_threshold = self.get_parameter('flare_danger_threshold').value
+        self.flare_danger = self.get_parameter('flare_danger_threshold').value
         self.publish_debug = self.get_parameter('publish_debug').value
+        self.history_size = self.get_parameter('detection_history_size').value
+        self.min_confirmations = self.get_parameter('min_detections_for_confirm').value
         
-        # ENHANCED HSV ranges
+        # HSV ranges from config (optimized for underwater)
+        # Red stripes (port side)
         self.red_lower1 = np.array([0, 60, 60])
         self.red_upper1 = np.array([15, 255, 255])
         self.red_lower2 = np.array([155, 60, 60])
         self.red_upper2 = np.array([180, 255, 255])
         
+        # Green stripes (starboard side)
         self.green_lower = np.array([35, 30, 30])
         self.green_upper = np.array([95, 255, 255])
         
+        # Orange flare (MUST AVOID)
         self.orange_lower = np.array([5, 60, 60])
         self.orange_upper = np.array([30, 255, 255])
         
-        # Detection history
-        self.detection_history = []
-        self.history_size = 5
-        self.min_confirmations = 2
+        # Detection history for temporal filtering
+        self.gate_detection_history = deque(maxlen=self.history_size)
+        self.flare_detection_history = deque(maxlen=self.history_size)
         
         # QoS profiles
         qos_sensor = QoSProfile(
@@ -63,6 +72,7 @@ class FixedGateDetectorNode(Node):
             depth=1,
             durability=DurabilityPolicy.VOLATILE
         )
+        
         qos_reliable = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
             history=HistoryPolicy.KEEP_LAST,
@@ -72,42 +82,47 @@ class FixedGateDetectorNode(Node):
         
         # Subscriptions
         self.image_sub = self.create_subscription(
-            Image, '/camera_forward/image_raw',
-            self.image_callback, qos_sensor
+            Image,
+            '/camera_forward/image_raw',
+            self.image_callback,
+            qos_sensor
         )
+        
         self.cam_info_sub = self.create_subscription(
-            CameraInfo, '/camera_forward/camera_info',
-            self.cam_info_callback, qos_reliable
+            CameraInfo,
+            '/camera_forward/camera_info',
+            self.cam_info_callback,
+            qos_reliable
         )
         
         # Publishers
         self.gate_detected_pub = self.create_publisher(Bool, '/gate/detected', 10)
-        self.gate_center_pub = self.create_publisher(PoseStamped, '/gate/center_pose', 10)
-        self.gate_alignment_pub = self.create_publisher(Float32, '/gate/alignment_error', 10)
-        self.gate_distance_pub = self.create_publisher(Float32, '/gate/estimated_distance', 10)
+        self.alignment_pub = self.create_publisher(Float32, '/gate/alignment_error', 10)
+        self.distance_pub = self.create_publisher(Float32, '/gate/estimated_distance', 10)
+        self.gate_center_pub = self.create_publisher(Point, '/gate/center_point', 10)
         
         self.flare_detected_pub = self.create_publisher(Bool, '/flare/detected', 10)
-        self.flare_position_pub = self.create_publisher(PoseStamped, '/flare/position', 10)
-        self.flare_warning_pub = self.create_publisher(String, '/flare/warning', 10)
         self.flare_avoidance_pub = self.create_publisher(Float32, '/flare/avoidance_direction', 10)
+        self.flare_warning_pub = self.create_publisher(String, '/flare/warning', 10)
         
-        self.debug_pub = self.create_publisher(Image, '/gate/debug_image', 10)
+        if self.publish_debug:
+            self.debug_pub = self.create_publisher(Image, '/gate/debug_image', 10)
         
-        self.get_logger().info('='*70)
-        self.get_logger().info('✅ FIXED Gate Detector with Enhanced Debugging')
-        self.get_logger().info('='*70)
-        self.get_logger().info('📺 Subscribe to /gate/debug_image in rqt_image_view')
-        self.get_logger().info(f'🔍 Min area: {self.min_area} (reduced for long-range)')
-        self.get_logger().info(f'📐 Aspect ratio: {self.aspect_threshold} (more lenient)')  # FIXED: lowercase 'l'
-        self.get_logger().info('='*70)
+        self.get_logger().info('Gate Detector Node initialized')
+        self.get_logger().info(f'Minimum area: {self.min_area}, Aspect threshold: {self.aspect_threshold}')
     
     def cam_info_callback(self, msg: CameraInfo):
         if self.camera_matrix is None:
             self.camera_matrix = np.array(msg.k).reshape((3, 3))
             self.image_width = msg.width
             self.image_height = msg.height
-            self.get_logger().info(f'📷 Camera: {self.image_width}x{self.image_height}')
-            self.destroy_subscription(self.cam_info_sub)
+            self.fx = self.camera_matrix[0, 0]
+            self.fy = self.camera_matrix[1, 1]
+            self.cx = self.camera_matrix[0, 2]
+            self.cy = self.camera_matrix[1, 2]
+            self.get_logger().info(f'Camera initialized: {self.image_width}x{self.image_height}')
+            self.get_logger().info(f'Focal length: fx={self.fx:.1f}, fy={self.fy:.1f}')
+            # Don't destroy subscription - might need it if camera restarts
     
     def image_callback(self, msg: Image):
         if self.camera_matrix is None:
@@ -122,54 +137,139 @@ class FixedGateDetectorNode(Node):
         
         debug_img = cv_image.copy() if self.publish_debug else None
         
-        # Detect components
-        flare_info = self.detect_orange_flare(hsv_image, debug_img)
-        red_bars = self.detect_color_bars(hsv_image, self.red_lower1, self.red_upper1,
-                                          self.red_lower2, self.red_upper2, debug_img, 
-                                          (0, 0, 255), "RED")
-        green_bars = self.detect_color_bars(hsv_image, self.green_lower, self.green_upper,
-                                            None, None, debug_img, (0, 255, 0), "GREEN")
+        # Detect gate components
+        red_stripe = self.detect_stripe(hsv_image, self.red_lower1, self.red_upper1, 
+                                       self.red_lower2, self.red_upper2, debug_img, 
+                                       (0, 0, 255), "RED (PORT)")
         
-        # Gate detection with temporal filtering
-        gate_detected_now = len(red_bars) > 0 and len(green_bars) > 0
-        self.detection_history.append(gate_detected_now)
-        if len(self.detection_history) > self.history_size:
-            self.detection_history.pop(0)
+        green_stripe = self.detect_stripe(hsv_image, self.green_lower, self.green_upper,
+                                         None, None, debug_img, (0, 255, 0), "GREEN (STBD)")
         
-        confirmations = sum(self.detection_history)
-        gate_detected = confirmations >= self.min_confirmations
+        # Detect orange flare
+        flare_info = self.detect_flare(hsv_image, debug_img)
         
-        # Publish detection status
-        detected_msg = Bool()
-        detected_msg.data = gate_detected
-        self.gate_detected_pub.publish(detected_msg)
+        # Process gate detection
+        gate_detected = False
+        alignment_error = 0.0
+        estimated_distance = 0.0
+        gate_center_x = 0
+        gate_center_y = 0
         
-        # Draw detection status on debug image
-        if debug_img is not None:
-            status_color = (0, 255, 0) if gate_detected else (0, 0, 255)
-            cv2.putText(debug_img, 
-                       f"GATE: {'DETECTED' if gate_detected else 'NOT DETECTED'}", 
-                       (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, status_color, 2)
-            cv2.putText(debug_img, 
-                       f"Confirmations: {confirmations}/{self.history_size}", 
-                       (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        
-        # Process flare
-        if flare_info['detected']:
-            self.process_flare_avoidance(flare_info, msg.header, debug_img)
-        
-        # Process gate
-        if gate_detected and len(red_bars) > 0 and len(green_bars) > 0:
-            self.process_gate_detection(red_bars[0], green_bars[0], flare_info, 
-                                       msg.header, debug_img)
-        else:
+        if red_stripe is not None and green_stripe is not None:
+            # Both stripes detected - calculate gate properties
+            gate_detected = True
+            
+            # Gate center is midpoint between stripes
+            gate_center_x = (red_stripe['center'][0] + green_stripe['center'][0]) // 2
+            gate_center_y = (red_stripe['center'][1] + green_stripe['center'][1]) // 2
+            
+            # Calculate alignment error (normalized)
+            # Negative = gate is left, Positive = gate is right
+            image_center_x = self.image_width / 2
+            pixel_error = gate_center_x - image_center_x
+            alignment_error = pixel_error / image_center_x  # Normalized [-1, 1]
+            
+            # Estimate distance using gate width
+            stripe_distance_pixels = abs(red_stripe['center'][0] - green_stripe['center'][0])
+            if stripe_distance_pixels > 0:
+                # Distance = (real_width * focal_length) / pixel_width
+                estimated_distance = (self.gate_width * self.fx) / stripe_distance_pixels
+            else:
+                estimated_distance = 999.0
+            
             if debug_img is not None:
-                if len(red_bars) == 0:
-                    cv2.putText(debug_img, "Missing: RED stripes", 
-                               (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-                if len(green_bars) == 0:
-                    cv2.putText(debug_img, "Missing: GREEN stripes", 
-                               (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                # Draw gate center
+                cv2.circle(debug_img, (gate_center_x, gate_center_y), 10, (255, 0, 255), -1)
+                cv2.line(debug_img, (gate_center_x, 0), (gate_center_x, self.image_height), 
+                        (255, 0, 255), 2)
+                
+                # Draw image center line
+                cv2.line(debug_img, (int(image_center_x), 0), 
+                        (int(image_center_x), self.image_height), (0, 255, 255), 2)
+                
+                # Draw gate dimensions
+                cv2.line(debug_img, red_stripe['center'], green_stripe['center'], (255, 255, 0), 3)
+                
+                # Display info
+                info_text = [
+                    f"GATE DETECTED",
+                    f"Distance: {estimated_distance:.2f}m",
+                    f"Alignment: {alignment_error:+.3f}",
+                    f"Center: ({gate_center_x}, {gate_center_y})"
+                ]
+                y_offset = 30
+                for text in info_text:
+                    cv2.putText(debug_img, text, (10, y_offset),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    y_offset += 30
+        
+        elif red_stripe is not None or green_stripe is not None:
+            # Only one stripe detected
+            gate_detected = False
+            if debug_img is not None:
+                cv2.putText(debug_img, "PARTIAL GATE DETECTION", (10, 30),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        
+        # Temporal filtering for gate
+        self.gate_detection_history.append(gate_detected)
+        confirmed_gate = sum(self.gate_detection_history) >= self.min_confirmations
+        
+        # Temporal filtering for flare
+        self.flare_detection_history.append(flare_info is not None)
+        confirmed_flare = sum(self.flare_detection_history) >= self.min_confirmations
+        
+        # Publish gate detection
+        gate_msg = Bool()
+        gate_msg.data = confirmed_gate
+        self.gate_detected_pub.publish(gate_msg)
+        
+        if confirmed_gate:
+            # Publish alignment error
+            align_msg = Float32()
+            align_msg.data = float(alignment_error)
+            self.alignment_pub.publish(align_msg)
+            
+            # Publish distance
+            dist_msg = Float32()
+            dist_msg.data = float(estimated_distance)
+            self.distance_pub.publish(dist_msg)
+            
+            # Publish gate center
+            center_msg = Point()
+            center_msg.x = float(gate_center_x)
+            center_msg.y = float(gate_center_y)
+            center_msg.z = float(estimated_distance)
+            self.gate_center_pub.publish(center_msg)
+        
+        # Publish flare detection
+        flare_msg = Bool()
+        flare_msg.data = confirmed_flare
+        self.flare_detected_pub.publish(flare_msg)
+        
+        if confirmed_flare and flare_info:
+            # Calculate avoidance direction
+            flare_x = flare_info['center'][0]
+            image_center = self.image_width / 2
+            
+            # If flare is left of center, avoid by going right (+1)
+            # If flare is right of center, avoid by going left (-1)
+            avoidance_direction = 1.0 if flare_x < image_center else -1.0
+            
+            avoidance_msg = Float32()
+            avoidance_msg.data = avoidance_direction
+            self.flare_avoidance_pub.publish(avoidance_msg)
+            
+            # Calculate danger level
+            flare_distance_from_center = abs(flare_x - image_center) / image_center
+            
+            if flare_distance_from_center < self.flare_danger:
+                warning = String()
+                warning.data = "CRITICAL: Orange flare dead ahead! Emergency avoidance!"
+                self.flare_warning_pub.publish(warning)
+                
+                if debug_img is not None:
+                    cv2.putText(debug_img, "!!! FLARE DANGER !!!", (10, self.image_height - 50),
+                               cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
         
         # Publish debug image
         if self.publish_debug and debug_img is not None:
@@ -180,10 +280,10 @@ class FixedGateDetectorNode(Node):
             except CvBridgeError as e:
                 self.get_logger().error(f'Debug image error: {e}')
     
-    def detect_color_bars(self, hsv_image, lower1, upper1, lower2, upper2, 
-                          debug_img, color, label):
-        """Detect colored bars"""
+    def detect_stripe(self, hsv_image, lower1, upper1, lower2, upper2, debug_img, color, label):
+        """Detect a single stripe (red or green) of the gate"""
         
+        # Create mask
         mask1 = cv2.inRange(hsv_image, lower1, upper1)
         if lower2 is not None and upper2 is not None:
             mask2 = cv2.inRange(hsv_image, lower2, upper2)
@@ -191,55 +291,84 @@ class FixedGateDetectorNode(Node):
         else:
             mask = mask1
         
-        kernel = np.ones((3, 3), np.uint8)
+        # Morphological operations
+        kernel = np.ones((5, 5), np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
         
+        # Find contours
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        detected_bars = []
+        
+        if not contours:
+            return None
+        
+        # Find largest valid contour
+        best_contour = None
+        best_area = 0
         
         for cnt in contours:
             area = cv2.contourArea(cnt)
             if area < self.min_area:
                 continue
             
+            # Check if it's vertical (stripe-like)
             x, y, w, h = cv2.boundingRect(cnt)
-            aspect_ratio = float(h) / w if w > 0 else 0
+            if w == 0:
+                continue
+            aspect_ratio = float(h) / w
             
-            if aspect_ratio > self.aspect_threshold:
-                M = cv2.moments(cnt)
-                if M["m00"] != 0:
-                    cx = int(M["m10"] / M["m00"])
-                    cy = int(M["m01"] / M["m00"])
-                    
-                    detected_bars.append({
-                        'center': (cx, cy),
-                        'bbox': (x, y, w, h),
-                        'area': area,
-                        'aspect_ratio': aspect_ratio
-                    })
-                    
-                    if debug_img is not None:
-                        cv2.rectangle(debug_img, (x, y), (x + w, y + h), color, 3)
-                        cv2.circle(debug_img, (cx, cy), 7, color, -1)
-                        cv2.putText(debug_img, f"{label} {area:.0f}px", (x, y - 5),
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            # Stripe should be taller than wide
+            if aspect_ratio > self.aspect_threshold and area > best_area:
+                best_contour = cnt
+                best_area = area
         
-        detected_bars.sort(key=lambda x: x['area'], reverse=True)
-        return detected_bars
+        if best_contour is None:
+            return None
+        
+        # Get stripe properties
+        M = cv2.moments(best_contour)
+        if M["m00"] == 0:
+            return None
+        
+        cx = int(M["m10"] / M["m00"])
+        cy = int(M["m01"] / M["m00"])
+        
+        x, y, w, h = cv2.boundingRect(best_contour)
+        
+        stripe_info = {
+            'center': (cx, cy),
+            'bbox': (x, y, w, h),
+            'area': best_area
+        }
+        
+        # Draw on debug image
+        if debug_img is not None:
+            cv2.drawContours(debug_img, [best_contour], -1, color, 3)
+            cv2.circle(debug_img, (cx, cy), 8, color, -1)
+            cv2.rectangle(debug_img, (x, y), (x+w, y+h), color, 2)
+            cv2.putText(debug_img, label, (x, y-10),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        
+        return stripe_info
     
-    def detect_orange_flare(self, hsv_image, debug_img):
-        """Detect orange flare"""
+    def detect_flare(self, hsv_image, debug_img):
+        """Detect orange flare (obstacle)"""
+        
         mask = cv2.inRange(hsv_image, self.orange_lower, self.orange_upper)
-        kernel = np.ones((5, 5), np.uint8)
+        
+        # Morphological operations
+        kernel = np.ones((7, 7), np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
-        flare_info = {'detected': False, 'position': None, 'bbox': None, 
-                     'area': 0, 'normalized_x': 0.0}
-        largest_flare = None
-        max_area = 0
+        if not contours:
+            return None
+        
+        # Find largest flare
+        best_contour = None
+        best_area = 0
         
         for cnt in contours:
             area = cv2.contourArea(cnt)
@@ -247,113 +376,46 @@ class FixedGateDetectorNode(Node):
                 continue
             
             x, y, w, h = cv2.boundingRect(cnt)
-            aspect_ratio = float(h) / w if w > 0 else 0
+            if w == 0:
+                continue
+            aspect_ratio = float(h) / w
             
-            if aspect_ratio > self.flare_aspect_min and area > max_area:
-                M = cv2.moments(cnt)
-                if M["m00"] != 0:
-                    cx = int(M["m10"] / M["m00"])
-                    cy = int(M["m01"] / M["m00"])
-                    max_area = area
-                    largest_flare = {'center': (cx, cy), 'bbox': (x, y, w, h), 'area': area}
+            # Flare is tall and thin
+            if aspect_ratio > self.flare_aspect_min and area > best_area:
+                best_contour = cnt
+                best_area = area
         
-        if largest_flare:
-            flare_info['detected'] = True
-            flare_info['position'] = largest_flare['center']
-            flare_info['bbox'] = largest_flare['bbox']
-            flare_info['area'] = largest_flare['area']
-            cx = largest_flare['center'][0]
-            flare_info['normalized_x'] = (cx - self.image_width / 2) / (self.image_width / 2)
-            
-            if debug_img is not None:
-                x, y, w, h = largest_flare['bbox']
-                cv2.rectangle(debug_img, (x, y), (x + w, y + h), (0, 165, 255), 4)
-                cv2.circle(debug_img, largest_flare['center'], 10, (0, 165, 255), -1)
-                cv2.putText(debug_img, "DANGER: ORANGE FLARE!", (x, y - 15), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 3)
+        if best_contour is None:
+            return None
+        
+        M = cv2.moments(best_contour)
+        if M["m00"] == 0:
+            return None
+        
+        cx = int(M["m10"] / M["m00"])
+        cy = int(M["m01"] / M["m00"])
+        
+        x, y, w, h = cv2.boundingRect(best_contour)
+        
+        flare_info = {
+            'center': (cx, cy),
+            'bbox': (x, y, w, h),
+            'area': best_area
+        }
+        
+        if debug_img is not None:
+            cv2.drawContours(debug_img, [best_contour], -1, (0, 165, 255), 4)
+            cv2.circle(debug_img, (cx, cy), 10, (0, 0, 255), -1)
+            cv2.rectangle(debug_img, (x, y), (x+w, y+h), (0, 0, 255), 3)
+            cv2.putText(debug_img, "ORANGE FLARE", (x, y-10),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
         
         return flare_info
-    
-    def process_gate_detection(self, red_bar, green_bar, flare_info, header, debug_img):
-        """Process gate detection"""
-        red_cx, red_cy = red_bar['center']
-        green_cx, green_cy = green_bar['center']
-        
-        gate_center_x = (red_cx + green_cx) // 2
-        gate_center_y = (red_cy + green_cy) // 2
-        
-        image_center_x = self.image_width // 2
-        alignment_error_px = gate_center_x - image_center_x
-        alignment_error_normalized = alignment_error_px / (self.image_width / 2.0)
-        
-        gate_width_px = abs(green_cx - red_cx)
-        fx = self.camera_matrix[0, 0]
-        estimated_distance = (self.gate_width * fx) / gate_width_px if gate_width_px > 0 else 0.0
-        
-        # Draw on debug image
-        if debug_img is not None:
-            gate_left = min(red_bar['bbox'][0], green_bar['bbox'][0])
-            gate_right = max(red_bar['bbox'][0] + red_bar['bbox'][2], 
-                            green_bar['bbox'][0] + green_bar['bbox'][2])
-            gate_top = min(red_bar['bbox'][1], green_bar['bbox'][1])
-            gate_bottom = max(red_bar['bbox'][1] + red_bar['bbox'][3], 
-                             green_bar['bbox'][1] + green_bar['bbox'][3])
-            
-            cv2.rectangle(debug_img, (gate_left, gate_top), (gate_right, gate_bottom), 
-                         (255, 255, 0), 3)
-            cv2.circle(debug_img, (gate_center_x, gate_center_y), 15, (0, 255, 255), -1)
-            cv2.line(debug_img, (red_cx, red_cy), (green_cx, green_cy), (255, 255, 0), 3)
-            cv2.line(debug_img, (image_center_x, 0), (image_center_x, self.image_height), 
-                    (255, 0, 255), 2)
-            
-            info_y = gate_bottom + 30
-            cv2.putText(debug_img, f"Distance: {estimated_distance:.2f}m", 
-                       (gate_left, info_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            cv2.putText(debug_img, f"Alignment: {alignment_error_normalized:+.2f}", 
-                       (gate_left, info_y + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, 
-                       (0, 255, 0) if abs(alignment_error_normalized) < 0.1 else (0, 0, 255), 2)
-        
-        # Publish data
-        pose_msg = PoseStamped()
-        pose_msg.header = header
-        pose_msg.header.frame_id = 'camera_forward'
-        pose_msg.pose.position.x = float(gate_center_x)
-        pose_msg.pose.position.y = float(gate_center_y)
-        pose_msg.pose.position.z = estimated_distance
-        pose_msg.pose.orientation.w = 1.0
-        self.gate_center_pub.publish(pose_msg)
-        
-        alignment_msg = Float32()
-        alignment_msg.data = alignment_error_normalized
-        self.gate_alignment_pub.publish(alignment_msg)
-        
-        distance_msg = Float32()
-        distance_msg.data = estimated_distance
-        self.gate_distance_pub.publish(distance_msg)
-    
-    def process_flare_avoidance(self, flare_info, header, debug_img):
-        """Process flare detection"""
-        flare_msg = Bool()
-        flare_msg.data = True
-        self.flare_detected_pub.publish(flare_msg)
-        
-        pos_msg = PoseStamped()
-        pos_msg.header = header
-        pos_msg.header.frame_id = 'camera_forward'
-        pos_msg.pose.position.x = float(flare_info['position'][0])
-        pos_msg.pose.position.y = float(flare_info['position'][1])
-        pos_msg.pose.orientation.w = 1.0
-        self.flare_position_pub.publish(pos_msg)
-        
-        avoidance_direction = -flare_info['normalized_x']
-        avoidance_msg = Float32()
-        avoidance_msg.data = avoidance_direction
-        self.flare_avoidance_pub.publish(avoidance_msg)
 
 
 def main(args=None):
     rclpy.init(args=args)
-    node = FixedGateDetectorNode()
+    node = GateDetectorNode()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
