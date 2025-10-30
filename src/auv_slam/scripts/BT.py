@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Fixed Gate Mission Controller
-Ensures proper forward motion and gate detection
+FIXED Gate Mission Controller with Smart Search Strategy
+Solves the searching loop issue with intelligent scanning
 """
 
 import rclpy
@@ -13,11 +13,11 @@ import time
 import math
 
 
-class SimpleGateMission(Node):
-    """Fixed mission controller for gate passing"""
+class SmartGateMission(Node):
+    """Fixed mission controller with intelligent search"""
     
     def __init__(self):
-        super().__init__('simple_gate_mission')
+        super().__init__('smart_gate_mission')
         
         # Mission states
         self.INIT = 0
@@ -29,39 +29,48 @@ class SimpleGateMission(Node):
         
         self.state = self.INIT
         
-        # Parameters - OPTIMIZED FOR MOVEMENT
+        # Parameters
         self.declare_parameter('target_depth', -1.5)
-        self.declare_parameter('depth_tolerance', 0.3)  # Looser tolerance
-        self.declare_parameter('search_speed', 0.6)  # Good forward speed
+        self.declare_parameter('depth_tolerance', 0.3)
+        self.declare_parameter('search_forward_speed', 0.5)  # Move forward while searching
+        self.declare_parameter('search_rotation_speed', 0.15)  # Slow rotation
         self.declare_parameter('approach_speed', 0.7)
-        self.declare_parameter('passing_speed', 1.0)  # Full speed
+        self.declare_parameter('passing_speed', 1.0)
+        self.declare_parameter('passing_duration', 8.0)
         self.declare_parameter('alignment_threshold', 0.15)
         self.declare_parameter('approach_distance', 3.0)
         self.declare_parameter('passing_distance', 1.5)
-        self.declare_parameter('passing_duration', 8.0)  # Longer to ensure complete passage
-        self.declare_parameter('yaw_gain', 0.8)
-        self.declare_parameter('depth_gain', 1.2)  # Higher gain for faster depth control
+        self.declare_parameter('yaw_gain', 1.2)  # Higher gain for responsive turning
+        self.declare_parameter('depth_gain', 1.5)
         
         self.target_depth = self.get_parameter('target_depth').value
         self.depth_tolerance = self.get_parameter('depth_tolerance').value
-        self.search_speed = self.get_parameter('search_speed').value
+        self.search_forward_speed = self.get_parameter('search_forward_speed').value
+        self.search_rotation_speed = self.get_parameter('search_rotation_speed').value
         self.approach_speed = self.get_parameter('approach_speed').value
         self.passing_speed = self.get_parameter('passing_speed').value
+        self.passing_duration = self.get_parameter('passing_duration').value
         self.alignment_threshold = self.get_parameter('alignment_threshold').value
         self.approach_distance = self.get_parameter('approach_distance').value
         self.passing_distance = self.get_parameter('passing_distance').value
-        self.passing_duration = self.get_parameter('passing_duration').value
         self.yaw_gain = self.get_parameter('yaw_gain').value
         self.depth_gain = self.get_parameter('depth_gain').value
         
         # State variables
         self.current_depth = 0.0
+        self.current_position = None
         self.gate_detected = False
         self.gate_alignment_error = 0.0
         self.gate_distance = 999.0
         self.state_start_time = time.time()
         self.passing_start_time = None
-        self.last_cmd_time = time.time()
+        
+        # Search strategy variables
+        self.search_start_position = None
+        self.search_phase = 0  # 0: forward, 1: left sweep, 2: right sweep, 3: advance
+        self.search_phase_start = None
+        self.total_rotation = 0.0
+        self.last_yaw = None
         
         # Subscriptions
         self.odom_sub = self.create_subscription(
@@ -83,45 +92,36 @@ class SimpleGateMission(Node):
         self.timer = self.create_timer(0.05, self.control_loop)
         
         self.get_logger().info('='*70)
-        self.get_logger().info('🚀 FIXED Gate Mission Controller Started!')
+        self.get_logger().info('🚀 SMART Gate Mission Controller Started!')
         self.get_logger().info('='*70)
         self.get_logger().info(f'📍 Target Depth: {self.target_depth}m')
-        self.get_logger().info(f'🎯 Search Speed: {self.search_speed} m/s')
+        self.get_logger().info(f'🔍 Search Speed: {self.search_forward_speed} m/s + rotation')
         self.get_logger().info(f'⚡ Passing Speed: {self.passing_speed} m/s')
         self.get_logger().info('='*70)
     
-    # ===== CALLBACKS =====
-    
     def odom_callback(self, msg: Odometry):
-        """Update current depth from odometry"""
+        """Update current pose"""
         self.current_depth = msg.pose.pose.position.z
+        self.current_position = msg.pose.pose.position
         
-        # Log position every 2 seconds to verify movement
-        if time.time() - self.last_cmd_time > 2.0:
-            pos = msg.pose.pose.position
-            self.get_logger().info(
-                f'📍 Position: X={pos.x:.2f}, Y={pos.y:.2f}, Z={pos.z:.2f}',
-                throttle_duration_sec=2.0
-            )
-            self.last_cmd_time = time.time()
+        # Extract yaw for search tracking
+        q = msg.pose.pose.orientation
+        siny_cosp = 2 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
+        self.last_yaw = math.atan2(siny_cosp, cosy_cosp)
     
     def gate_detected_callback(self, msg: Bool):
-        """Update gate detection status"""
         was_detected = self.gate_detected
         self.gate_detected = msg.data
         
         if not was_detected and self.gate_detected:
-            self.get_logger().info('✅ GATE DETECTED!')
+            self.get_logger().info('✅ GATE DETECTED! Switching to approach mode')
     
     def gate_alignment_callback(self, msg: Float32):
-        """Update gate alignment error"""
         self.gate_alignment_error = msg.data
     
     def gate_distance_callback(self, msg: Float32):
-        """Update estimated distance to gate"""
         self.gate_distance = msg.data
-    
-    # ===== CONTROL LOOP =====
     
     def control_loop(self):
         """Main control loop"""
@@ -139,12 +139,10 @@ class SimpleGateMission(Node):
         elif self.state == self.COMPLETED:
             self.handle_completed()
     
-    # ===== STATE HANDLERS =====
-    
     def handle_init(self):
         """Initialize mission"""
         self.get_logger().info('📍 State: INIT → Starting mission...')
-        time.sleep(1.0)  # Give systems time to initialize
+        time.sleep(1.0)
         self.transition_to(self.SUBMERGING)
     
     def handle_submerging(self):
@@ -152,128 +150,147 @@ class SimpleGateMission(Node):
         depth_error = self.target_depth - self.current_depth
         elapsed = time.time() - self.state_start_time
 
-        # Create command
         cmd = Twist()
-        
-        # CRITICAL: Always move forward while submerging
-        cmd.linear.x = 0.4  # Forward motion
-        cmd.linear.y = 0.0
-        cmd.angular.z = 0.0
-        
-        # Depth control
+        cmd.linear.x = 0.3  # Move forward while submerging
         cmd.linear.z = depth_error * self.depth_gain
         
-        # Publish command
         self.cmd_vel_pub.publish(cmd)
 
-        # Log progress
         if int(elapsed) % 2 == 0:
             self.get_logger().info(
-                f'⬇️  Submerging & Moving: Depth={self.current_depth:.2f}m, '
-                f'Target={self.target_depth:.2f}m, Forward Speed=0.4',
+                f'⬇️  Submerging: Depth={self.current_depth:.2f}m, '
+                f'Target={self.target_depth:.2f}m',
                 throttle_duration_sec=2.0
             )
 
-        # Check if depth reached
         if abs(depth_error) < self.depth_tolerance:
             self.get_logger().info(f'✅ Target depth reached: {self.current_depth:.2f}m')
-            self.get_logger().info('➡️  Continuing forward to find gate...')
             self.transition_to(self.SEARCHING_GATE)
             return
 
-        # Timeout - continue anyway
         if elapsed > 15.0:
             self.get_logger().warn(f'⚠️  Depth timeout! Moving to search...')
             self.transition_to(self.SEARCHING_GATE)
     
     def handle_searching(self):
-        """Search for gate while maintaining depth and moving forward"""
+        """SMART SEARCH: Move forward + scan left/right"""
         elapsed = time.time() - self.state_start_time
 
-        # Check if gate detected
+        # Initialize search position
+        if self.search_start_position is None:
+            self.search_start_position = self.current_position
+            self.search_phase_start = time.time()
+
+        # Check if gate found
         if self.gate_detected:
-            self.get_logger().info('✅ Gate found! Moving to approach...')
+            self.get_logger().info('✅ Gate found during search!')
             self.transition_to(self.APPROACHING_GATE)
             return
 
-        # Create command
         cmd = Twist()
         
-        # CRITICAL: Keep moving forward
-        cmd.linear.x = self.search_speed  # Continuous forward motion
-        cmd.linear.y = 0.0
-        
-        # Add slight scanning after 10 seconds
-        if elapsed > 10.0:
-            cmd.angular.z = 0.1 * math.sin(elapsed * 0.5)  # Gentle oscillation
-        else:
-            cmd.angular.z = 0.0  # Straight ahead first
-        
-        # Maintain depth
+        # ALWAYS maintain depth
         depth_error = self.target_depth - self.current_depth
         cmd.linear.z = depth_error * self.depth_gain
+        
+        # SMART SEARCH PATTERN: Forward + Sweeping
+        phase_duration = time.time() - self.search_phase_start
+        
+        if self.search_phase == 0:  # Initial forward push
+            cmd.linear.x = self.search_forward_speed
+            cmd.angular.z = 0.0
+            
+            if phase_duration > 3.0:  # Search straight for 3 seconds
+                self.search_phase = 1
+                self.search_phase_start = time.time()
+                self.total_rotation = 0.0
+                self.get_logger().info('🔍 Search: Starting LEFT sweep')
+        
+        elif self.search_phase == 1:  # Sweep LEFT while moving forward
+            cmd.linear.x = self.search_forward_speed * 0.7  # Slower while turning
+            cmd.angular.z = self.search_rotation_speed  # Turn left
+            
+            # Track rotation
+            if phase_duration > 0.05:  # Update every cycle
+                self.total_rotation += self.search_rotation_speed * 0.05
+            
+            if self.total_rotation > math.radians(60):  # 60 degree sweep
+                self.search_phase = 2
+                self.search_phase_start = time.time()
+                self.total_rotation = 0.0
+                self.get_logger().info('🔍 Search: Starting RIGHT sweep')
+        
+        elif self.search_phase == 2:  # Sweep RIGHT while moving forward
+            cmd.linear.x = self.search_forward_speed * 0.7
+            cmd.angular.z = -self.search_rotation_speed  # Turn right
+            
+            if phase_duration > 0.05:
+                self.total_rotation += self.search_rotation_speed * 0.05
+            
+            if self.total_rotation > math.radians(120):  # 120 degree sweep (back to center + 60)
+                self.search_phase = 3
+                self.search_phase_start = time.time()
+                self.get_logger().info('🔍 Search: Advancing forward')
+        
+        elif self.search_phase == 3:  # Advance forward, then repeat
+            cmd.linear.x = self.search_forward_speed
+            cmd.angular.z = -self.search_rotation_speed * 0.5  # Center back
+            
+            if phase_duration > 2.0:  # Advance for 2 seconds
+                self.search_phase = 0  # Reset to forward phase
+                self.search_phase_start = time.time()
+                self.get_logger().info('🔍 Search: Repeating pattern')
         
         # Publish command
         self.cmd_vel_pub.publish(cmd)
 
         # Log search status
-        if int(elapsed) % 3 == 0:
+        if int(elapsed) % 2 == 0:
+            distance_moved = 0.0
+            if self.search_start_position:
+                dx = self.current_position.x - self.search_start_position.x
+                dy = self.current_position.y - self.search_start_position.y
+                distance_moved = math.sqrt(dx**2 + dy**2)
+            
             self.get_logger().info(
-                f'🔍 Searching: Time={elapsed:.1f}s, '
-                f'Speed={self.search_speed:.2f}, '
-                f'Depth={self.current_depth:.2f}m',
-                throttle_duration_sec=3.0
+                f'🔍 Searching: Phase={self.search_phase}, '
+                f'Time={elapsed:.1f}s, Moved={distance_moved:.1f}m',
+                throttle_duration_sec=2.0
             )
-
-        # Timeout - just keep going forward
-        if elapsed > 60.0:
-            self.get_logger().warn('⏱️  Search timeout - proceeding forward anyway!')
-            # Don't stop, just keep moving forward
-            cmd.linear.x = self.passing_speed
-            cmd.linear.z = depth_error * self.depth_gain
-            self.cmd_vel_pub.publish(cmd)
     
     def handle_approaching(self):
-        """Approach gate while maintaining alignment"""
+        """Approach gate with continuous alignment correction"""
         elapsed = time.time() - self.state_start_time
 
         # Check if gate lost
         if not self.gate_detected:
-            if elapsed > 2.0:  # Give it 2 seconds before giving up
+            if elapsed > 2.0:
                 self.get_logger().warn('⚠️  Gate lost! Returning to search...')
                 self.transition_to(self.SEARCHING_GATE)
             return
 
         # Check if close enough to pass
-        if (self.gate_distance < self.passing_distance and self.gate_distance > 0.1) or elapsed > 10.0:
-            self.get_logger().info(
-                f'✅ Ready to pass! Distance: {self.gate_distance:.2f}m'
-            )
+        if self.gate_distance < self.passing_distance and self.gate_distance > 0.1:
+            self.get_logger().info(f'✅ Ready to pass! Distance: {self.gate_distance:.2f}m')
             self.transition_to(self.PASSING_THROUGH)
             return
 
-        # Create command
         cmd = Twist()
         
-        # Keep moving forward
+        # CONTINUOUS DRIFT APPROACH
         cmd.linear.x = self.approach_speed
-        cmd.linear.y = 0.0
-        
-        # Alignment correction
         cmd.angular.z = -self.gate_alignment_error * self.yaw_gain
         
         # Maintain depth
         depth_error = self.target_depth - self.current_depth
         cmd.linear.z = depth_error * self.depth_gain
         
-        # Publish command
         self.cmd_vel_pub.publish(cmd)
 
-        # Log status
         if int(elapsed * 2) % 2 == 0:
             self.get_logger().info(
-                f'➡️  Approaching: Distance={self.gate_distance:.2f}m, '
-                f'Alignment={self.gate_alignment_error:.3f}, '
+                f'➡️  Approaching: Dist={self.gate_distance:.2f}m, '
+                f'Align={self.gate_alignment_error:.3f}, '
                 f'Speed={self.approach_speed:.2f}',
                 throttle_duration_sec=0.5
             )
@@ -281,22 +298,17 @@ class SimpleGateMission(Node):
     def handle_passing(self):
         """Pass through gate at maximum speed"""
 
-        # Initialize passing timer
         if self.passing_start_time is None:
             self.passing_start_time = time.time()
             self.get_logger().info('🚀 PASSING THROUGH GATE - FULL SPEED!')
 
         elapsed = time.time() - self.passing_start_time
 
-        # Check if passed through
         if elapsed > self.passing_duration:
-            self.get_logger().info(
-                f'✅ GATE PASSED! Duration: {elapsed:.1f}s'
-            )
+            self.get_logger().info(f'✅ GATE PASSED! Duration: {elapsed:.1f}s')
             self.transition_to(self.COMPLETED)
             return
 
-        # Create command
         cmd = Twist()
         
         # MAXIMUM FORWARD SPEED
@@ -308,32 +320,25 @@ class SimpleGateMission(Node):
         depth_error = self.target_depth - self.current_depth
         cmd.linear.z = depth_error * self.depth_gain
         
-        # Publish command
         self.cmd_vel_pub.publish(cmd)
 
-        # Log status
         if int(elapsed) % 1 == 0:
             self.get_logger().info(
-                f'🚀 Passing: {elapsed:.1f}s / {self.passing_duration:.1f}s, '
-                f'Speed={self.passing_speed:.2f}',
+                f'🚀 Passing: {elapsed:.1f}s / {self.passing_duration:.1f}s',
                 throttle_duration_sec=1.0
             )
     
     def handle_completed(self):
-        """Mission complete - stop all motion"""
+        """Mission complete"""
         
-        # Log completion once
         elapsed = time.time() - self.state_start_time
         if elapsed < 0.5:
             self.get_logger().info('='*70)
             self.get_logger().info('✅ GATE MISSION COMPLETED!')
             self.get_logger().info('='*70)
         
-        # Stop all motion
         cmd = Twist()
         self.cmd_vel_pub.publish(cmd)
-    
-    # ===== UTILITIES =====
     
     def transition_to(self, new_state: int):
         """Transition to new state"""
@@ -354,21 +359,27 @@ class SimpleGateMission(Node):
         self.state = new_state
         self.state_start_time = time.time()
         
-        # Reset passing timer when leaving passing state
+        # Reset search variables when leaving search
+        if self.state != self.SEARCHING_GATE:
+            self.search_start_position = None
+            self.search_phase = 0
+            self.search_phase_start = None
+            self.total_rotation = 0.0
+        
+        # Reset passing timer
         if self.state != self.PASSING_THROUGH:
             self.passing_start_time = None
 
 
 def main(args=None):
     rclpy.init(args=args)
-    node = SimpleGateMission()
+    node = SmartGateMission()
     
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         node.get_logger().info('Shutting down mission controller...')
     finally:
-        # Stop all motion on shutdown
         cmd = Twist()
         node.cmd_vel_pub.publish(cmd)
         node.destroy_node()

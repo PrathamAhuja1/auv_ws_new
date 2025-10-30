@@ -463,48 +463,70 @@
   <sensor name="camera_forward" type="camera">
     <pose>0 0 0 0 0 0</pose>
     <camera>
-      <!-- CRITICAL FIX 1: Wider FOV for long-range detection -->
-      <horizontal_fov>2.4</horizontal_fov>  <!-- ~137 degrees, was 2.0 -->
+      <!-- CRITICAL FIX 1: Ultra-wide FOV for maximum visibility -->
+      <horizontal_fov>2.8</horizontal_fov>  <!-- ~160 degrees! Was 2.0 -->
       
       <image>
-        <width>800</width>
-        <height>600</height>
+        <!-- CRITICAL FIX 2: Higher resolution for better distant object detection -->
+        <width>1280</width>   <!-- Was 800 -->
+        <height>960</height>  <!-- Was 600 -->
+        <format>RGB_INT8</format>
       </image>
       
-      <!-- CRITICAL FIX 2: Extended clipping range -->
+      <!-- CRITICAL FIX 3: Extended clipping range - KEY TO YOUR PROBLEM! -->
       <clip>
-        <near>0.05</near>  <!-- Can see very close objects, was 0.1 -->
-        <far>50</far>      <!-- Can see very far objects, was 20 -->
+        <near>0.01</near>   <!-- Can see VERY close objects, was 0.05 -->
+        <far>100</far>      <!-- Can see VERY far objects, was 50 -->
       </clip>
       
-      <!-- CRITICAL FIX 3: Better lens model for underwater -->
+      <!-- CRITICAL FIX 4: Better lens model for wide FOV -->
       <lens>
-        <type>stereographic</type>  <!-- Better for wide FOV -->
+        <type>stereographic</type>
         <scale_to_hfov>true</scale_to_hfov>
+        <!-- Custom projection -->
+        <custom_function>
+          <c1>1.05</c1>
+          <c2>4</c2>
+          <f>1.0</f>
+          <fun>tan</fun>
+        </custom_function>
       </lens>
       
-      <!-- CRITICAL FIX 4: Noise model for realistic detection -->
+      <!-- CRITICAL FIX 5: Realistic underwater noise -->
       <noise>
         <type>gaussian</type>
         <mean>0.0</mean>
-        <stddev>0.007</stddev>
+        <stddev>0.005</stddev>  <!-- Reduced noise for better detection -->
       </noise>
       
-      <!-- CRITICAL FIX 5: Distortion for realistic underwater optics -->
+      <!-- CRITICAL FIX 6: Minimal distortion for accurate detection -->
       <distortion>
-        <k1>0.0</k1>
-        <k2>0.0</k2>
+        <k1>-0.05</k1>  <!-- Slight barrel distortion (realistic for wide FOV) -->
+        <k2>0.01</k2>
         <k3>0.0</k3>
         <p1>0.0</p1>
         <p2>0.0</p2>
         <center>0.5 0.5</center>
       </distortion>
+      
+      <!-- CRITICAL FIX 7: Enhanced image quality -->
+      <save enabled="false"/>
+      <depth_camera>
+        <output>depths</output>
+      </depth_camera>
     </camera>
     
     <always_on>1</always_on>
-    <update_rate>30</update_rate>  <!-- Increased from 10 for smoother detection -->
+    <update_rate>30</update_rate>  <!-- Good frame rate -->
     <visualize>true</visualize>
     <topic>/camera_forward/image_raw</topic>
+    
+    <!-- CRITICAL FIX 8: Performance optimization -->
+    <plugin name="camera_controller" filename="libgazebo_ros_camera.so">
+      <frame_name>camera_forward_link</frame_name>
+      <min_depth>0.01</min_depth>
+      <max_depth>100.0</max_depth>
+    </plugin>
   </sensor>
 </gazebo>
 

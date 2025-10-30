@@ -1,55 +1,43 @@
 # src/auv_slam/config/gate_params.yaml
-# FIXED GATE DETECTION PARAMETERS FOR LONG-RANGE DETECTION
+# FIXED PARAMETERS FOR LONG-RANGE GATE DETECTION
 
-gate_detector_node:
+fixed_gate_detector_node:
   ros__parameters:
-    # CRITICAL FIX 1: Reduced minimum area for distant gates
-    min_contour_area: 150  # Was 400-500, now detects smaller/distant gates
+    # CRITICAL FIX 1: Much lower area threshold for distant gates
+    min_contour_area: 50  # Was 500! Now detects tiny distant gates
     
     # CRITICAL FIX 2: More lenient aspect ratio
-    aspect_ratio_threshold: 1.5  # Was 2.0, allows shorter detection
+    aspect_ratio_threshold: 0.8  # Was 2.0, accepts shorter/wider shapes
     
     # Gate dimensions
     gate_width_meters: 1.5
     
     # CRITICAL FIX 3: Reduced flare detection threshold
-    flare_min_area: 100  # Was 300, detects distant flares
-    flare_aspect_min: 2.0  # Was 3.0, more lenient
+    flare_min_area: 50  # Was 300
+    flare_aspect_min: 1.5  # Was 3.0, more lenient
     flare_danger_threshold: 0.3
     
-    # Debug
+    # Debug ALWAYS ON
     publish_debug: true
     
     # CRITICAL FIX 4: Enhanced HSV ranges for underwater visibility
-    # Red stripes (gate port side) - ENHANCED
+    # Red stripes (gate port side) - MUCH MORE SENSITIVE
     red_hsv:
-      # Lower range (bright reds)
-      lower1: [0, 80, 80]    # Was [0, 100, 100], now more sensitive
-      upper1: [15, 255, 255] # Was [10, 255, 255], wider range
-      # Upper range (dark reds)
-      lower2: [155, 80, 80]  # Was [160, 100, 100], catches more reds
+      lower1: [0, 60, 60]    # Was [0, 100, 100], now very sensitive
+      upper1: [15, 255, 255]
+      lower2: [155, 60, 60]  # Was [160, 100, 100]
       upper2: [180, 255, 255]
     
-    # Green stripes (gate starboard side) - ENHANCED
+    # Green stripes (gate starboard side) - MUCH MORE SENSITIVE
     green_hsv:
-      lower: [35, 40, 40]    # Was [40, 50, 50], more sensitive
-      upper: [95, 255, 255]  # Was [90, 255, 255], wider range
+      lower: [35, 30, 30]    # Was [40, 50, 50], now very sensitive
+      upper: [95, 255, 255]
     
-    # Orange flare (MUST AVOID) - ENHANCED
+    # Orange flare (MUST AVOID) - MORE SENSITIVE
     orange_hsv:
-      lower: [8, 80, 80]     # Was [10, 100, 100], catches more orange
-      upper: [28, 255, 255]  # Was [25, 255, 255], wider range
+      lower: [5, 60, 60]     # Was [10, 100, 100]
+      upper: [30, 255, 255]
     
-    # CRITICAL FIX 5: Adaptive detection parameters
-    adaptive_threshold: true
-    use_clahe: true  # Contrast Limited Adaptive Histogram Equalization
-    clahe_clip_limit: 2.0
-    clahe_tile_size: 8
-    
-    # CRITICAL FIX 6: Multi-scale detection
-    use_pyramid: true
-    pyramid_levels: 2  # Check image at multiple scales
-    
-    # CRITICAL FIX 7: Temporal filtering
-    detection_history_size: 5  # Smooth detections over frames
-    min_detections_for_confirm: 2  # Require 2/5 frames to confirm
+    # CRITICAL FIX 5: Temporal filtering for stable detection
+    detection_history_size: 5
+    min_detections_for_confirm: 2  # Need 2/5 frames to confirm (40% confidence)
