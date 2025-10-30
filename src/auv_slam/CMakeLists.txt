@@ -28,7 +28,6 @@ install(FILES src/description/orca4_description.urdf
 install(PROGRAMS
   scripts/bluerov_teleop_ign.py
   scripts/gate_detector_node.py
-  scripts/flare_detection.py
   scripts/gate_navigator_node.py
   scripts/safety_monitor_node.py
   scripts/diagnostic_node.py
