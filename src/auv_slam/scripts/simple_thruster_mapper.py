@@ -1,137 +1,164 @@
 #!/usr/bin/env python3
 """
-CORRECTED Thruster Mapper for BlueROV2 Vectored Configuration
-Uses proper vector mathematics for 45° angled thrusters
+Enhanced Thruster Mapper with Thruster Allocation Matrix (TAM)
+Converts 6-DOF wrench commands to individual thruster forces
+Based on best practices from vortex-auv and McGill AUV repos
 """
 
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Wrench, Twist
 from std_msgs.msg import Float64
 import numpy as np
-import math
 
 
-class CorrectedThrusterMapper(Node):
+class EnhancedThrusterMapper(Node):
     def __init__(self):
-        super().__init__('corrected_thruster_mapper')
+        super().__init__('enhanced_thruster_mapper')
         
-        # Parameters
-        self.declare_parameter('max_thrust', 150.0)
-        self.declare_parameter('thrust_scale', 15.0)
-        self.declare_parameter('vertical_thrust_boost', 2.0)
+        # Declare parameters
+        self.declare_parameter('max_thrust', 10.0)
+        self.declare_parameter('dead_zone', 0.1)
+        self.declare_parameter('use_twist_input', True)  # True for Twist, False for Wrench
         
         self.max_thrust = self.get_parameter('max_thrust').value
-        self.thrust_scale = self.get_parameter('thrust_scale').value
-        self.vertical_boost = self.get_parameter('vertical_thrust_boost').value
+        self.dead_zone = self.get_parameter('dead_zone').value
+        self.use_twist = self.get_parameter('use_twist_input').value
         
-        # Subscriber
-        self.cmd_vel_sub = self.create_subscription(
-            Twist, '/rp2040/cmd_vel', self.cmd_vel_callback, 10)
+        # Orca4 Thruster Configuration (6 thrusters)
+        # Layout:
+        #   T1 (FL Front-Left)     T2 (FR Front-Right)
+        #   T3 (BL Back-Left)      T4 (BR Back-Right)
+        #   T5 (D1 Down-Forward)   T6 (D2 Down-Aft)
         
-        # Publishers for 6 thrusters
+        # Thruster Allocation Matrix: Maps [Fx, Fy, Fz, Tx, Ty, Tz] -> [T1...T6]
+        # Each row represents how one thruster contributes to each DOF
+        #           Surge  Sway  Heave  Roll  Pitch  Yaw
+        self.TAM = np.array([
+            [ 1.0,  -1.0,   0.0,   0.0,   0.0,  -1.0],  # T1 (FL)
+            [ 1.0,   1.0,   0.0,   0.0,   0.0,   1.0],  # T2 (FR)
+            [-1.0,  -1.0,   0.0,   0.0,   0.0,   1.0],  # T3 (BL)
+            [-1.0,   1.0,   0.0,   0.0,   0.0,  -1.0],  # T4 (BR)
+            [ 0.0,   0.0,   1.0,   0.0,   0.2,   0.0],  # T5 (D1) - slight pitch coupling
+            [ 0.0,   0.0,   1.0,   0.0,  -0.2,   0.0],  # T6 (D2) - slight pitch coupling
+        ], dtype=np.float64)
+        
+        # Compute Moore-Penrose pseudo-inverse for allocation
+        self.TAM_pinv = np.linalg.pinv(self.TAM)
+        
+        # Subscribers
+        if self.use_twist:
+            self.twist_sub = self.create_subscription(
+                Twist, '/rp2040/cmd_vel', self.twist_callback, 10)
+        else:
+            self.wrench_sub = self.create_subscription(
+                Wrench, '/cmd_wrench', self.wrench_callback, 10)
+        
+        # Publishers for individual thrusters
         self.thruster_pubs = []
         for i in range(1, 7):
-            pub = self.create_publisher(Float64, f'/thruster{i}_cmd', 10)
+            # --- FIX 1: TOPIC NAME ---
+            # Changed topic name to match ign_bridge.yaml
+            pub = self.create_publisher(
+                Float64, 
+                f'/thruster{i}_cmd', 
+                10
+            )
             self.thruster_pubs.append(pub)
         
-        self.get_logger().info('✅ CORRECTED Thruster Mapper initialized')
-        self.get_logger().info(f'Max thrust: {self.max_thrust}, Scale: {self.thrust_scale}')
-        self.get_logger().info('Using vectored thruster geometry (45° angles)')
+        # Diagnostic publisher
+        self.diag_timer = self.create_timer(1.0, self.publish_diagnostics)
+        self.last_wrench = np.zeros(6)
+        self.last_thrusts = np.zeros(6)
+        
+        self.get_logger().info('Enhanced Thruster Mapper initialized')
+        self.get_logger().info(f'Max thrust: {self.max_thrust} N')
+        self.get_logger().info(f'Input mode: {"Twist" if self.use_twist else "Wrench"}')
     
-    def cmd_vel_callback(self, msg: Twist):
+    def twist_callback(self, msg: Twist):
+        """Convert Twist to Wrench and allocate"""
+        # Simple velocity-to-force mapping (you can add dynamics later)
+        # For now, treat Twist as desired forces/torques
+        wrench = np.array([
+            msg.linear.x,   # Surge force
+            msg.linear.y,   # Sway force
+            # --- FIX 2: Z-AXIS LOGIC ---
+            # Inverted Z-axis to match hardware convention
+            # ROS: -z = down | Hardware: +thrust = down
+            -msg.linear.z,  # Heave force
+            0.0,            # Roll torque (not used in basic control)
+            0.0,            # Pitch torque
+            msg.angular.z,  # Yaw torque
+        ])
+        
+        self.allocate_and_publish(wrench)
+    
+    def wrench_callback(self, msg: Wrench):
+        """Direct wrench allocation"""
+        wrench = np.array([
+            msg.force.x,
+            msg.force.y,
+            msg.force.z,
+            msg.torque.x,
+            msg.torque.y,
+            msg.torque.z,
+        ])
+        
+        self.allocate_and_publish(wrench)
+    
+    def allocate_and_publish(self, wrench: np.ndarray):
         """
-        Vectored Thruster Configuration (45° angles):
-        
-        Top View:
-             FRONT
-               ↑
-        T1 ↗     ↖ T2
-           \  •  /
-            \ | /
-        T3 ←  •  → T4
-            / | \
-           /  •  \
-        T3 ↙     ↘ T4
-             BACK
-        
-        Each horizontal thruster at 45° provides:
-        - Component along X-axis (surge)
-        - Component along Y-axis (sway)
-        
-        T1: Front-Left  (-45° from X-axis)
-        T2: Front-Right (+45° from X-axis)
-        T3: Back-Left   (-135° from X-axis)
-        T4: Back-Right  (+135° from X-axis)
+        Allocate wrench to thrusters using TAM pseudo-inverse
+        with saturation and dead-zone handling
         """
+        self.last_wrench = wrench
         
-        # Extract commands (body frame)
-        surge = msg.linear.x * self.thrust_scale   # +X = forward
-        sway = msg.linear.y * self.thrust_scale    # +Y = left
-        heave = msg.linear.z * self.thrust_scale * self.vertical_boost
-        yaw = msg.angular.z * self.thrust_scale    # +Z = CCW
-        
-        # ==================== VECTORED THRUSTER MATH ====================
-        # For 45° angled thrusters, we need to decompose forces
-        # Each thruster contributes: thrust * cos(45°) to each axis
-        
-        # Simplification: cos(45°) = sin(45°) = 0.707
-        # But we can work with the full values and normalize
-        
-        # FORWARD (+surge): All 4 thrusters spin forward
-        # LEFT (+sway): T1,T3 forward, T2,T4 backward
-        # CCW (+yaw): T1,T4 forward, T2,T3 backward
-        
-        # BlueROV2 Standard Allocation:
-        # T1 (Front-Left):  +surge +sway +yaw
-        # T2 (Front-Right): +surge -sway -yaw
-        # T3 (Back-Left):   +surge +sway -yaw
-        # T4 (Back-Right):  +surge -sway +yaw
-        
-        t1 = surge + sway + yaw   # Front-Left
-        t2 = surge - sway - yaw   # Front-Right
-        t3 = surge + sway - yaw   # Back-Left
-        t4 = surge - sway + yaw   # Back-Right
-        
-        # Vertical thrusters (T5, T6)
-        # Both point downward, so positive command = downward thrust
-        # BUT: In our convention, negative Z command = submerge
-        # So we need to INVERT the sign
-        t5 = -heave  # Front vertical
-        t6 = -heave  # Back vertical
+        # Apply TAM pseudo-inverse: T = TAM^+ * W
+        raw_thrusts = self.TAM_pinv @ wrench
         
         # Apply saturation
-        thrusts = [t1, t2, t3, t4, t5, t6]
-        thrusts = [np.clip(t, -self.max_thrust, self.max_thrust) for t in thrusts]
+        saturated_thrusts = np.clip(raw_thrusts, -self.max_thrust, self.max_thrust)
         
-        # Publish to thrusters
-        for i, (pub, thrust) in enumerate(zip(self.thruster_pubs, thrusts)):
-            cmd_msg = Float64()
-            cmd_msg.data = float(thrust)
-            pub.publish(cmd_msg)
+        # Apply dead-zone
+        final_thrusts = np.where(
+            np.abs(saturated_thrusts) < self.dead_zone,
+            0.0,
+            saturated_thrusts
+        )
         
-        # Debug logging
-        if any(abs(t) > 0.1 for t in thrusts):
+        self.last_thrusts = final_thrusts
+        
+        # Check for saturation warning
+        if not np.allclose(raw_thrusts, saturated_thrusts):
+            self.get_logger().warn(
+                'Thruster saturation occurred! '
+                f'Max raw thrust: {np.max(np.abs(raw_thrusts)):.2f}'
+            )
+        
+        # Publish to each thruster
+        for i, (pub, thrust) in enumerate(zip(self.thruster_pubs, final_thrusts)):
+            msg = Float64()
+            msg.data = float(thrust)
+            pub.publish(msg)
+    
+    def publish_diagnostics(self):
+        """Log current allocation status"""
+        if np.any(self.last_thrusts != 0):
             self.get_logger().info(
-                f'🎮 Input: surge={surge:.1f}, sway={sway:.1f}, heave={heave:.1f}, yaw={yaw:.1f}\n'
-                f'   Output: [T1={thrusts[0]:.1f}, T2={thrusts[1]:.1f}, '
-                f'T3={thrusts[2]:.1f}, T4={thrusts[3]:.1f}, '
-                f'T5={thrusts[4]:.1f}, T6={thrusts[5]:.1f}]',
-                throttle_duration_sec=1.0
+                f'Wrench: [{", ".join([f"{w:6.2f}" for w in self.last_wrench])}] | '
+                f'Thrusts: [{", ".join([f"{t:5.1f}" for t in self.last_thrusts])}]',
+                throttle_duration_sec=2.0
             )
 
 
 def main(args=None):
     rclpy.init(args=args)
-    node = CorrectedThrusterMapper()
+    node = EnhancedThrusterMapper()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
-        # Stop all thrusters on shutdown
-        stop_cmd = Twist()
-        node.cmd_vel_callback(stop_cmd)
         node.destroy_node()
         rclpy.shutdown()
 

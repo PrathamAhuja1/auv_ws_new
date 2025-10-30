@@ -47,6 +47,19 @@
   gz_type_name: "ignition.msgs.CameraInfo"
   direction: BIDIRECTIONAL
 
+# Forward camera
+- ros_topic_name: "/camera_forward/image_raw"
+  gz_topic_name: "/camera_forward/image_raw"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "ignition.msgs.Image"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/camera_forward/camera_info"
+  gz_topic_name: "/camera_forward/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "ignition.msgs.CameraInfo"
+  direction: GZ_TO_ROS
+
 # Ground Truth Odometry - FIXED TOPIC NAME
 - ros_topic_name: "/ground_truth/odom"
   gz_topic_name: "/model/orca4_ign/odometry"

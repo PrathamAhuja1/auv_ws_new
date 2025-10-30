@@ -310,7 +310,7 @@
       <sensor name="left_camera" type="camera">
         <origin xyz = "0.15 0.2 -0.0675" rpy = "0 0 1.5707963267948966" />
           <camera>
-             <horizontal_fov>1.4</horizontal_fov>
+             <horizontal_fov>2</horizontal_fov>
           <image>
             <width>800</width>
             <height>600</height>
@@ -432,6 +432,55 @@
         </inertia>
       </inertial>
     </link>
+  
+
+  <!-- Forward-facing camera for gate detection -->
+<link name="camera_forward_link">
+  <visual name="forward_camera_visual">
+    <geometry>
+      <box>
+        <size>0.02 0.05 0.05</size>
+      </box>
+    </geometry>
+    <material>
+      <ambient>0.2 0.2 0.2 1</ambient>
+    </material>
+  </visual>
+  <inertial>
+    <mass value="0.001"/>
+    <inertia ixx="0.001" ixy="0.0" ixz="0.0" iyy="0.001" iyz="0.0" izz="0.001"/>
+  </inertial>
+</link>
+
+<joint name="camera_forward_joint" type="fixed">
+  <parent link="base_link"/>
+  <child link="camera_forward_link"/>
+  <!-- Mount at front, facing forward -->
+  <origin xyz="0.23 0 0" rpy="0 0 0"/>
+</joint>
+
+<gazebo reference="camera_forward_link">
+  <sensor name="camera_forward" type="camera">
+    <pose>0 0 0 0 0 0</pose>
+    <camera>
+      <!-- Wider FOV for better gate detection -->
+      <horizontal_fov>2.0</horizontal_fov>
+      <image>
+        <width>800</width>
+        <height>600</height>
+      </image>
+      <clip>
+        <near>0.1</near>
+        <far>20</far>  <!-- Increased range -->
+      </clip>
+    </camera>
+    <always_on>1</always_on>
+    <update_rate>10</update_rate>
+    <visualize>true</visualize>
+    <topic>/camera_forward/image_raw</topic>
+  </sensor>
+</gazebo>
+
 
   <joint name="imu_joint" type="fixed">
     <parent link="base_link"/>
