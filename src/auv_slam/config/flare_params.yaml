@@ -11,13 +11,13 @@ flare_detector_node:
     # Red flare
     red_hsv:
       lower1: [0, 120, 70]
-      upper1: [10, 255, 255]
-      lower2: [170, 120, 70]
+      upper1: [8, 255, 255]  # Tightened from 10 to 8
+      lower2: [172, 120, 70] # Tightened from 170 to 172
       upper2: [180, 255, 255]
     
     # Yellow flare
     yellow_hsv:
-      lower: [20, 100, 100]
+      lower: [9, 100, 100]  # Expanded from 20 to 9 to include orange
       upper: [30, 255, 255]
     
     # Blue flare

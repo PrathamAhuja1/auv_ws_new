@@ -256,7 +256,7 @@
           <pose>-0.75 0 0 0 0 0</pose>
           <geometry>
             <box>
-              <size>0.04 0.04 1.5</size>  <!-- ✅ FIXED: 4cm posts per diagram -->
+              <size>0.04 0.04 1.5</size>
             </box>
           </geometry>
         </collision>
@@ -267,14 +267,14 @@
           <pose>-0.75 0 -0.65 0 0 0</pose>
           <geometry>
             <box>
-              <size>0.07 0.07 0.20</size>  <!-- Slightly oversized for visibility -->
+              <size>0.07 0.07 0.20</size>
             </box>
           </geometry>
           <material>
             <ambient>1.0 0.0 0.0 1</ambient>
             <diffuse>1.0 0.0 0.0 1</diffuse>
             <specular>0.8 0.8 0.8 1</specular>
-            <emissive>0.7 0.0 0.0 1</emissive>  <!-- ✅ BRIGHT & GLOWING -->
+            <emissive>0.7 0.0 0.0 1</emissive>
           </material>
         </visual>
         
@@ -407,7 +407,7 @@
           <pose>0.75 0 0 0 0 0</pose>
           <geometry>
             <box>
-              <size>0.04 0.04 1.5</size>  <!-- ✅ FIXED: 4cm posts per diagram -->
+              <size>0.04 0.04 1.5</size>
             </box>
           </geometry>
         </collision>
@@ -425,7 +425,7 @@
             <ambient>0.0 1.0 0.0 1</ambient>
             <diffuse>0.0 1.0 0.0 1</diffuse>
             <specular>0.8 0.8 0.8 1</specular>
-            <emissive>0.0 0.7 0.0 1</emissive>  <!-- ✅ BRIGHT & GLOWING -->
+            <emissive>0.0 0.7 0.0 1</emissive>
           </material>
         </visual>
         
@@ -558,7 +558,7 @@
           <pose>0 0 0.75 0 0 0</pose>
           <geometry>
             <box>
-              <size>1.5 0.04 0.04</size>  <!-- ✅ FIXED: 4cm bar per diagram -->
+              <size>1.5 0.04 0.04</size>
             </box>
           </geometry>
         </collision>
@@ -583,12 +583,12 @@
     <!-- Orange Flare (obstacle before gate) -->
     <model name="orange_flare">
       <static>true</static>
-      <pose>-14 2 -2.25 0 0 0</pose>  <!-- Matches diagram: between start and gate -->
+      <pose>-14 2 -2.25 0 0 0</pose>
       <link name="flare_link">
         <collision name="flare_collision">
           <geometry>
             <cylinder>
-              <radius>0.08</radius>  <!-- Made slightly thicker for detection -->
+              <radius>0.08</radius>
               <length>1.5</length>
             </cylinder>
           </geometry>
@@ -601,10 +601,10 @@
             </cylinder>
           </geometry>
           <material>
-            <ambient>1.0 0.5 0.0 1</ambient>  <!-- Bright orange -->
+            <ambient>1.0 0.5 0.0 1</ambient>
             <diffuse>1.0 0.5 0.0 1</diffuse>
             <specular>0.8 0.4 0.0 1</specular>
-            <emissive>0.8 0.4 0.0 1</emissive>  <!-- ✅ GLOWING for detection -->
+            <emissive>0.8 0.4 0.0 1</emissive>
           </material>
         </visual>
         
@@ -620,201 +620,7 @@
             <ambient>1.0 0.3 0.0 1</ambient>
             <diffuse>1.0 0.3 0.0 1</diffuse>
             <specular>0.9 0.3 0.0 1</specular>
-            <emissive>1.0 0.4 0.0 1</emissive>  <!-- Extra bright top -->
-          </material>
-        </visual>
-      </link>
-    </model>
-
-    <!-- Target Zone Mat (8m x 2m green mat) -->
-    <model name="target_zone_mat">
-      <static>true</static>
-      <pose>0 6 -2.95 0 0 0</pose>
-      <link name="mat_link">
-        <visual name="mat_visual">
-          <geometry>
-            <box>
-              <size>8 2 0.02</size>
-            </box>
-          </geometry>
-          <material>
-            <ambient>0 0.8 0 1</ambient>
-            <diffuse>0 0.8 0 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-      </link>
-    </model>
-
-    <!-- Drums for Target Acquisition -->
-    <!-- Blue Drum -->
-    <model name="blue_drum">
-      <static>true</static>
-      <pose>-2 6 -2.85 0 0 0</pose>
-      <link name="drum_link">
-        <collision name="drum_collision">
-          <geometry>
-            <cylinder>
-              <radius>0.3</radius>
-              <length>0.3</length>
-            </cylinder>
-          </geometry>
-        </collision>
-        <visual name="drum_visual">
-          <geometry>
-            <cylinder>
-              <radius>0.3</radius>
-              <length>0.3</length>
-            </cylinder>
-          </geometry>
-          <material>
-            <ambient>0 0 1 1</ambient>
-            <diffuse>0 0 1 1</diffuse>
-            <specular>0.2 0.2 0.2 1</specular>
-          </material>
-        </visual>
-        <!-- Drum opening -->
-        <visual name="drum_opening">
-          <pose>0 0 0.15 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.28</radius>
-              <length>0.02</length>
-            </cylinder>
-          </geometry>
-          <material>
-            <ambient>0 0 0.5 1</ambient>
-            <diffuse>0 0 0.5 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-      </link>
-    </model>
-
-    <!-- Red Drum 1 (with pinger) -->
-    <model name="red_drum_1">
-      <static>true</static>
-      <pose>0 6 -2.85 0 0 0</pose>
-      <link name="drum_link">
-        <collision name="drum_collision">
-          <geometry>
-            <cylinder>
-              <radius>0.3</radius>
-              <length>0.3</length>
-            </cylinder>
-          </geometry>
-        </collision>
-        <visual name="drum_visual">
-          <geometry>
-            <cylinder>
-              <radius>0.3</radius>
-              <length>0.3</length>
-            </cylinder>
-          </geometry>
-          <material>
-            <ambient>1 0 0 1</ambient>
-            <diffuse>1 0 0 1</diffuse>
-            <specular>0.2 0.2 0.2 1</specular>
-          </material>
-        </visual>
-        <visual name="drum_opening">
-          <pose>0 0 0.15 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.28</radius>
-              <length>0.02</length>
-            </cylinder>
-          </geometry>
-          <material>
-            <ambient>0.5 0 0 1</ambient>
-            <diffuse>0.5 0 0 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-      </link>
-    </model>
-
-    <!-- Red Drum 2 -->
-    <model name="red_drum_2">
-      <static>true</static>
-      <pose>2 6 -2.85 0 0 0</pose>
-      <link name="drum_link">
-        <collision name="drum_collision">
-          <geometry>
-            <cylinder>
-              <radius>0.3</radius>
-              <length>0.3</length>
-            </cylinder>
-          </geometry>
-        </collision>
-        <visual name="drum_visual">
-          <geometry>
-            <cylinder>
-              <radius>0.3</radius>
-              <length>0.3</length>
-            </cylinder>
-          </geometry>
-          <material>
-            <ambient>1 0 0 1</ambient>
-            <diffuse>1 0 0 1</diffuse>
-            <specular>0.2 0.2 0.2 1</specular>
-          </material>
-        </visual>
-        <visual name="drum_opening">
-          <pose>0 0 0.15 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.28</radius>
-              <length>0.02</length>
-            </cylinder>
-          </geometry>
-          <material>
-            <ambient>0.5 0 0 1</ambient>
-            <diffuse>0.5 0 0 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-      </link>
-    </model>
-
-    <!-- Red Drum 3 -->
-    <model name="red_drum_3">
-      <static>true</static>
-      <pose>4 6 -2.85 0 0 0</pose>
-      <link name="drum_link">
-        <collision name="drum_collision">
-          <geometry>
-            <cylinder>
-              <radius>0.3</radius>
-              <length>0.3</length>
-            </cylinder>
-          </geometry>
-        </collision>
-        <visual name="drum_visual">
-          <geometry>
-            <cylinder>
-              <radius>0.3</radius>
-              <length>0.3</length>
-            </cylinder>
-          </geometry>
-          <material>
-            <ambient>1 0 0 1</ambient>
-            <diffuse>1 0 0 1</diffuse>
-            <specular>0.2 0.2 0.2 1</specular>
-          </material>
-        </visual>
-        <visual name="drum_opening">
-          <pose>0 0 0.15 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.28</radius>
-              <length>0.02</length>
-            </cylinder>
-          </geometry>
-          <material>
-            <ambient>0.5 0 0 1</ambient>
-            <diffuse>0.5 0 0 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
+            <emissive>1.0 0.4 0.0 1</emissive>
           </material>
         </visual>
       </link>

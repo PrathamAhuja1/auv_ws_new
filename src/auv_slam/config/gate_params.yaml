@@ -1,34 +1,34 @@
+# Updated Gate Detection Parameters - Orange Flare Rejection Fix
+# Place this in: config/gate_params.yaml
+
 gate_detector_node:
   ros__parameters:
-    # === NEW: TIGHTER HSV RANGES ===
-    # These now require higher saturation (S > 120) and value (V > 70) 
-    # to avoid dim/dark objects and flares.
-    
-    # Red (Hue: 0-10 and 170-180)
-    red_lower1: [0, 120, 70]
-    red_upper1: [10, 255, 255]
-    red_lower2: [170, 120, 70]
+    # ===== FIXED HSV RANGES - Red excludes orange =====
+    # Red color (H: 0-10 and 170-180) - EXCLUDES orange (H: 11-25)
+    red_lower1: [0, 120, 70]      # Low hue red (pure red)
+    red_upper1: [10, 255, 255]    # Stops BEFORE orange starts at H=11
+    red_lower2: [170, 120, 70]    # High hue red
     red_upper2: [180, 255, 255]
     
-    # Green (Hue: 35-85)
+    # Green color (H: 35-85) - True green, excludes yellow
     green_lower: [35, 100, 70]
     green_upper: [85, 255, 255]
     
-    # Orange Flare (Hue: 11-25, distinct from red)
+    # Orange flare (H: 11-25) - For explicit detection and rejection
     orange_lower: [11, 100, 100]
     orange_upper: [25, 255, 255]
     
-    # === NEW: STRICTER DETECTION PARAMETERS ===
-    # This filters out small, non-vertical objects (like drums)
+    # ===== STRICTER DETECTION PARAMETERS =====
+    # Gate stripes are large and vertical
+    min_area_strict: 75           # Minimum area for confident stripe
+    min_area_relaxed: 25          # Fallback minimum
     
-    # Min area for a confident stripe (filters small noise)
-    min_area_strict: 75
+    # Aspect ratio (h/w) - Gate stripes are VERTICAL
+    aspect_threshold: 1.5         # h/w must be > 1.5 (vertical)
     
-    # Min area for a relaxed search (if nothing is found)
-    min_area_relaxed: 25
-    
-    # Aspect ratio (h/w). We demand a 1.5:1 vertical rectangle.
-    aspect_threshold: 1.5
+    # Flare rejection parameters
+    flare_max_area: 300           # Flares are small
+    flare_aspect_max: 1.5         # Flares are more circular/square
     
     # Gate physical dimensions
     gate_width_meters: 1.5
@@ -36,10 +36,12 @@ gate_detector_node:
     # Temporal filtering
     detection_history_size: 3
     min_detections_for_confirm: 1
+    
+    # Debug output
+    publish_debug: true
 
 gate_navigator_node:
   ros__parameters:
-    # === Parameters for YOUR gate_navigator_node.py ===
     target_depth: -1.5
     depth_correction_gain: 1.5
     search_forward_speed: 0.5
