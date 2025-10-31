@@ -32,10 +32,10 @@ class GateDetectorNode(Node):
         self.orange_lower = np.array([10, 120, 120])
         self.orange_upper = np.array([25, 255, 255])
         
-        # Detection parameters - RELAXED FOR LARGER STRIPES
-        self.min_area_strict = 500
-        self.min_area_relaxed = 150
-        self.aspect_threshold = 1.2
+        # Detection parameters
+        self.min_area_strict = 300
+        self.min_area_relaxed = 80
+        self.aspect_threshold = 0.8
         self.gate_width = 1.5
         
         self.gate_detection_history = deque(maxlen=5)
@@ -137,7 +137,7 @@ class GateDetectorNode(Node):
         self.detection_stats['orange_pixels'] = orange_pixels
         
         # Morphological operations
-        kernel = np.ones((5, 5), np.uint8)
+        kernel = np.ones((3, 3), np.uint8)
         
         red_mask_clean = cv2.morphologyEx(red_mask, cv2.MORPH_CLOSE, kernel)
         red_mask_clean = cv2.morphologyEx(red_mask_clean, cv2.MORPH_OPEN, kernel)
@@ -179,9 +179,9 @@ class GateDetectorNode(Node):
                     
                     image_center_x = w / 2
                     if flare_center_x < image_center_x:
-                        avoidance_direction = 1.0
-                    else:
                         avoidance_direction = -1.0
+                    else:
+                        avoidance_direction = 1.0
                     
                     flare_msg = Bool()
                     flare_msg.data = True
@@ -319,6 +319,8 @@ class GateDetectorNode(Node):
                 f"Flare: {'WARNING' if flare_detected else 'OK'}"
             )
     
+
+
     def find_best_stripe(self, contours, debug_img, color, label, min_area, strict=True):
         if not contours:
             return None
@@ -338,16 +340,27 @@ class GateDetectorNode(Node):
             
             aspect_ratio = float(h) / w
             
+            # NEW: Check if stripe is at image edge (partial crop)
+            image_width = debug_img.shape[1] if debug_img is not None else 1280
+            at_edge = (x < 50 or (x + w) > image_width - 50)  # Within 50px of edge
+            
             score = area
             
             if strict:
-                if aspect_ratio > self.aspect_threshold:
+                # CHANGED: Accept lower aspect ratio OR edge position
+                if aspect_ratio > self.aspect_threshold or at_edge:
                     score *= 2.0
                 else:
                     continue
             else:
-                if aspect_ratio > self.aspect_threshold:
+                if aspect_ratio > self.aspect_threshold or at_edge:
                     score *= 1.5
+            
+            # BONUS: Prefer stripes closer to center (but don't reject edges)
+            center_x = x + w/2
+            center_distance = abs(center_x - image_width/2) / (image_width/2)
+            if center_distance < 0.3:  # Within center 60%
+                score *= 1.2
             
             if score > best_score:
                 M = cv2.moments(cnt)

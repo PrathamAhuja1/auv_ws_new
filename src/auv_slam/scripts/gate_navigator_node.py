@@ -54,6 +54,7 @@ class GateNavigatorNode(Node):
         self.estimated_distance = 999.0
         self.current_depth = 0.0
         self.flare_avoidance_direction = 0.0
+        self.flare_clear_time = None
         
         self.gate_lost_time = None
         self.passing_start_time = None
@@ -110,6 +111,7 @@ class GateNavigatorNode(Node):
             self.get_logger().error('ORANGE FLARE DETECTED - INITIATING AVOIDANCE')
             if self.state in [self.SEARCHING, self.APPROACHING]:
                 self.flare_avoidance_start_time = time.time()
+                self.transition_to(self.AVOIDING_FLARE)
         elif was_detected and not self.flare_detected:
             self.get_logger().info('Flare cleared')
             self.flare_avoidance_start_time = None
@@ -165,13 +167,26 @@ class GateNavigatorNode(Node):
             self.transition_to(self.APPROACHING)
             return cmd
         
-        cmd.linear.x = self.search_forward_speed
-        cmd.angular.z = self.search_rotation_speed
-        
+        # NEW: Oscillating search pattern (sweep left-right)
         elapsed = time.time() - self.state_start_time
+        
+        # Sweep pattern: 4 seconds left, 4 seconds right
+        sweep_period = 8.0
+        sweep_phase = (elapsed % sweep_period) / sweep_period
+        
+        if sweep_phase < 0.5:
+            # First half: rotate left
+            cmd.angular.z = self.search_rotation_speed
+        else:
+            # Second half: rotate right
+            cmd.angular.z = -self.search_rotation_speed
+        
+        cmd.linear.x = self.search_forward_speed  # Keep moving forward
+        
         if int(elapsed) % 3 == 0 and elapsed > 0:
+            direction = "LEFT" if sweep_phase < 0.5 else "RIGHT"
             self.get_logger().info(
-                f'Searching... {elapsed:.0f}s elapsed',
+                f'Searching ({direction})... {elapsed:.0f}s elapsed',
                 throttle_duration_sec=2.9
             )
         
@@ -207,24 +222,36 @@ class GateNavigatorNode(Node):
         return cmd
     
     def avoiding_flare_behavior(self, cmd: Twist) -> Twist:
+        # NEW: Require flare to be clear for 1 second before exiting
         if not self.flare_detected:
-            self.get_logger().info('Flare avoidance complete - resuming approach')
-            self.transition_to(self.APPROACHING)
-            return cmd
-        
-        if self.flare_avoidance_start_time:
-            elapsed = time.time() - self.flare_avoidance_start_time
-            if elapsed > self.flare_avoidance_duration:
-                self.get_logger().info('Flare avoidance timeout - resuming approach')
+            if not hasattr(self, 'flare_clear_time'):
+                self.flare_clear_time = time.time()
+            elif time.time() - self.flare_clear_time > 1.0:
+                self.get_logger().info('Flare cleared for 1s - resuming approach')
+                del self.flare_clear_time
                 self.transition_to(self.APPROACHING)
                 return cmd
+        else:
+            # Reset clear timer if flare detected again
+            if hasattr(self, 'flare_clear_time'):
+                del self.flare_clear_time
         
-        cmd.linear.y = self.flare_avoidance_direction * self.flare_avoidance_gain
-        cmd.linear.x = self.search_forward_speed * 0.5
+        # Increase timeout to 10 seconds (was 3)
+        if self.flare_avoidance_start_time:
+            elapsed = time.time() - self.flare_avoidance_start_time
+            if elapsed > 10.0:  # CHANGED from self.flare_avoidance_duration
+                self.get_logger().warn('Flare avoidance timeout after 10s')
+                self.transition_to(self.SEARCHING)  # Go back to search instead
+                return cmd
+        
+        # MORE AGGRESSIVE avoidance
+        cmd.linear.y = self.flare_avoidance_direction * 1.5
+        cmd.linear.x = 0.2 
         cmd.angular.z = 0.0
         
         self.get_logger().warn(
-            f'AVOIDING FLARE: Strafing {"RIGHT" if self.flare_avoidance_direction > 0 else "LEFT"}',
+            f'AVOIDING: dir={self.flare_avoidance_direction:.1f}, '
+            f'Y_cmd={cmd.linear.y:.2f}, elapsed={(time.time()-self.flare_avoidance_start_time):.1f}s',
             throttle_duration_sec=0.5
         )
         
