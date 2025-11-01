@@ -287,7 +287,7 @@ class SmartGateNavigator(Node):
         return cmd
     
     def centering_behavior(self, cmd: Twist) -> Twist:
-        """Center on gate before approaching"""
+        """SIMPLIFIED: Just keep gate in frame, don't perfectly center"""
         
         if not self.gate_detected:
             if self.gate_lost_time > 0.0:
@@ -304,50 +304,40 @@ class SmartGateNavigator(Node):
                     )
             return cmd
         
-        if self.centering_start_time == 0.0:
-            self.centering_start_time = time.time()
+        # CRITICAL CHANGE: Don't wait for perfect centering
+        # Just ensure gate is safely in frame, then MOVE FORWARD
         
-        centering_elapsed = time.time() - self.centering_start_time
+        # Gate is "safe" if it's not near frame edges
+        is_safe_in_frame = abs(self.frame_position) < 0.5  # Within ±50% of center
         
-        if centering_elapsed > self.centering_max_time:
-            self.get_logger().warn(f'⏰ Centering timeout - proceeding')
+        # If gate is safely in frame, START APPROACHING immediately
+        if is_safe_in_frame:
+            self.get_logger().info(
+                f'✅ Gate in frame (pos={self.frame_position:+.2f}) - START APPROACHING'
+            )
             self.centering_start_time = 0.0
             self.transition_to(self.APPROACHING)
             return cmd
         
-        yaw_correction = -self.frame_position * self.yaw_correction_gain
+        # Gate too far to edge - gentle yaw correction while moving forward
+        yaw_correction = -self.frame_position * self.yaw_correction_gain * 0.8
         
-        is_centered = abs(self.frame_position) < self.centering_threshold
-        is_confident = self.confidence > 0.7
-        
-        if is_centered and is_confident:
-            self.get_logger().info('✅ Gate CENTERED - transitioning to APPROACH')
-            self.centering_start_time = 0.0
-            self.transition_to(self.APPROACHING)
-            return cmd
-        
-        # IMPROVED CENTERING: Slow forward + yaw correction
-        # This maintains progress while aligning
-        if abs(self.frame_position) < 0.25:
-            # Close to center - move forward slowly
-            cmd.linear.x = 0.3
-        else:
-            # Far from center - stop and align first
-            cmd.linear.x = 0.0
-        
+        # CRITICAL: Keep moving forward (don't stop!)
+        cmd.linear.x = 0.4  # Always move forward
         cmd.linear.y = 0.0
         cmd.angular.z = yaw_correction
         
-        if abs(self.frame_position) > 0.6:
-            cmd.angular.z *= 1.8
-            cmd.linear.x = 0.0  # Stop completely if near edge
+        # Only stop if VERY close to edge
+        if abs(self.frame_position) > 0.7:
+            cmd.linear.x = 0.2  # Slow down but don't stop
+            cmd.angular.z *= 1.5  # Stronger yaw
             self.get_logger().warn(
-                f'🚨 GATE NEAR EDGE (pos={self.frame_position:+.2f}) - AGGRESSIVE YAW',
+                f'⚠️ Gate near edge (pos={self.frame_position:+.2f}) - slowing',
                 throttle_duration_sec=0.3
             )
         
         self.get_logger().info(
-            f'🎯 CENTERING: pos={self.frame_position:+.2f}, yaw={cmd.angular.z:+.2f}, fwd={cmd.linear.x:.2f}',
+            f'🎯 KEEP IN FRAME: pos={self.frame_position:+.2f}, yaw={cmd.angular.z:+.2f}, fwd={cmd.linear.x:.2f}',
             throttle_duration_sec=0.3
         )
         
