@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
 """
-IMPROVED Gate Navigator - Better depth control and centering
+SMART Gate Navigator - Smooth Flare Avoidance with Gate Tracking
 Key improvements:
-1. Optimized target depth for gate detection
-2. More aggressive centering with no timeout if gate visible
-3. Better state transitions
-4. Proper depth maintenance
+1. Only avoids flare when very close (< 2m)
+2. Maintains gate visibility during avoidance
+3. Minimal lateral movement - just enough to clear flare
+4. Returns to center alignment after clearing flare
+5. Proper depth control throughout
 """
 
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Bool, Float32, String
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, Point
 from nav_msgs.msg import Odometry
 import time
+import math
 
 
-class ImprovedGateNavigator(Node):
+class SmartGateNavigator(Node):
     def __init__(self):
         super().__init__('gate_navigator_node')
         
@@ -31,21 +33,25 @@ class ImprovedGateNavigator(Node):
         
         self.state = self.SEARCHING
         
-        # Parameters - OPTIMIZED for gate passage
-        self.declare_parameter('target_depth', -1.7)  # Slightly below gate center for better view
-        self.declare_parameter('depth_correction_gain', 2.0)  # Increased for faster response
+        # Parameters - OPTIMIZED
+        self.declare_parameter('target_depth', -1.7)
+        self.declare_parameter('depth_correction_gain', 2.0)
         self.declare_parameter('search_forward_speed', 0.5)
         self.declare_parameter('search_rotation_speed', 0.15)
         self.declare_parameter('approach_speed', 0.7)
         self.declare_parameter('passing_speed', 1.0)
         self.declare_parameter('passing_duration', 8.0)
-        self.declare_parameter('yaw_correction_gain', 2.5)  # More aggressive centering
+        self.declare_parameter('yaw_correction_gain', 2.5)
         self.declare_parameter('approach_distance', 3.0)
         self.declare_parameter('passing_distance', 1.5)
-        self.declare_parameter('flare_avoidance_gain', 0.8)
-        self.declare_parameter('flare_avoidance_duration', 3.0)
-        self.declare_parameter('centering_threshold', 0.12)  # Tighter tolerance
-        self.declare_parameter('centering_max_time', 10.0)  # Longer timeout
+        self.declare_parameter('centering_threshold', 0.12)
+        self.declare_parameter('centering_max_time', 10.0)
+        
+        # CRITICAL: Flare avoidance parameters
+        self.declare_parameter('flare_critical_distance', 2.0)  # Only avoid when < 2m
+        self.declare_parameter('flare_lateral_speed', 0.4)  # Gentle lateral movement
+        self.declare_parameter('flare_forward_speed', 0.3)  # Keep moving forward
+        self.declare_parameter('flare_max_duration', 10.0)  # Max 10s avoidance
         
         self.target_depth = self.get_parameter('target_depth').value
         self.depth_gain = self.get_parameter('depth_correction_gain').value
@@ -57,10 +63,13 @@ class ImprovedGateNavigator(Node):
         self.yaw_correction_gain = self.get_parameter('yaw_correction_gain').value
         self.approach_distance = self.get_parameter('approach_distance').value
         self.passing_distance = self.get_parameter('passing_distance').value
-        self.flare_avoidance_gain = self.get_parameter('flare_avoidance_gain').value
-        self.flare_avoidance_duration = self.get_parameter('flare_avoidance_duration').value
         self.centering_threshold = self.get_parameter('centering_threshold').value
         self.centering_max_time = self.get_parameter('centering_max_time').value
+        
+        self.flare_critical_distance = self.get_parameter('flare_critical_distance').value
+        self.flare_lateral_speed = self.get_parameter('flare_lateral_speed').value
+        self.flare_forward_speed = self.get_parameter('flare_forward_speed').value
+        self.flare_max_duration = self.get_parameter('flare_max_duration').value
         
         self.gate_lost_timeout = 3.0
         
@@ -71,9 +80,17 @@ class ImprovedGateNavigator(Node):
         self.alignment_error = 0.0
         self.estimated_distance = 999.0
         self.current_depth = 0.0
-        self.flare_avoidance_direction = 0.0
         self.frame_position = 0.0
         self.confidence = 0.0
+        
+        # Flare tracking
+        self.flare_position = None  # (x, y) in image frame
+        self.flare_distance = 999.0
+        self.flare_avoidance_direction = 0.0
+        
+        # Current position (for flare distance calculation)
+        self.current_position = None
+        self.flare_world_position = (-14.0, 2.0, -2.25)  # From world file
         
         # Timing variables
         self.gate_lost_time = 0.0
@@ -115,11 +132,14 @@ class ImprovedGateNavigator(Node):
         
         self.control_timer = self.create_timer(0.05, self.control_loop)
         
-        self.get_logger().info('✅ IMPROVED Gate Navigator READY')
-        self.get_logger().info(f'   Target depth: {self.target_depth}m (optimized for gate center)')
+        self.get_logger().info('='*70)
+        self.get_logger().info('✅ SMART Gate Navigator with Smooth Flare Avoidance')
+        self.get_logger().info('='*70)
+        self.get_logger().info(f'   Target depth: {self.target_depth}m')
+        self.get_logger().info(f'   Flare critical distance: {self.flare_critical_distance}m')
+        self.get_logger().info(f'   Flare lateral speed: {self.flare_lateral_speed} m/s (gentle)')
         self.get_logger().info(f'   Centering threshold: ±{self.centering_threshold*100:.0f}%')
-        self.get_logger().info(f'   Depth gain: {self.depth_gain} (faster response)')
-        self.get_logger().info(f'State: {self.get_state_name()}')
+        self.get_logger().info('='*70)
     
     def gate_detected_callback(self, msg: Bool):
         was_detected = self.gate_detected
@@ -144,22 +164,21 @@ class ImprovedGateNavigator(Node):
         self.confidence = msg.data
     
     def flare_detected_callback(self, msg: Bool):
-        was_detected = self.flare_detected
         self.flare_detected = msg.data
-        
-        if not was_detected and self.flare_detected:
-            self.get_logger().error('🚨 ORANGE FLARE DETECTED - INITIATING SMART AVOIDANCE')
-            if self.state in [self.SEARCHING, self.CENTERING, self.APPROACHING]:
-                self.flare_avoidance_start_time = time.time()
-                self.transition_to(self.AVOIDING_FLARE)
-        elif was_detected and not self.flare_detected:
-            self.get_logger().info('✅ Flare cleared')
     
     def flare_avoidance_callback(self, msg: Float32):
         self.flare_avoidance_direction = msg.data
     
     def flare_warning_callback(self, msg: String):
-        self.get_logger().warn(msg.data)
+        # Extract flare X position from warning
+        try:
+            if "X=" in msg.data:
+                x_str = msg.data.split("X=")[1]
+                flare_x = float(x_str)
+                # Store flare position for distance calculation
+                # (This is image X coordinate, not world position)
+        except:
+            pass
     
     def alignment_callback(self, msg: Float32):
         self.alignment_error = msg.data
@@ -169,20 +188,52 @@ class ImprovedGateNavigator(Node):
     
     def odom_callback(self, msg: Odometry):
         self.current_depth = msg.pose.pose.position.z
+        self.current_position = (
+            msg.pose.pose.position.x,
+            msg.pose.pose.position.y,
+            msg.pose.pose.position.z
+        )
+        
+        # Calculate distance to flare
+        if self.current_position:
+            dx = self.flare_world_position[0] - self.current_position[0]
+            dy = self.flare_world_position[1] - self.current_position[1]
+            self.flare_distance = math.sqrt(dx*dx + dy*dy)
+    
+    def should_avoid_flare(self) -> bool:
+        """
+        CRITICAL LOGIC: Only avoid flare when:
+        1. Flare is detected
+        2. Distance < critical distance (2m)
+        3. Gate is still visible (to maintain tracking)
+        """
+        if not self.flare_detected:
+            return False
+        
+        if self.flare_distance >= self.flare_critical_distance:
+            return False
+        
+        # IMPORTANT: Only avoid if we can see the gate
+        # This prevents losing gate during avoidance
+        if not self.gate_detected and self.state != self.AVOIDING_FLARE:
+            return False
+        
+        return True
     
     def control_loop(self):
         cmd = Twist()
         
-        # CRITICAL: Depth control (always active) - NO INVERSION
-        # If we're too high (current=-1m, target=-2m), error=-1, cmd.z=-2 (descend)
+        # CRITICAL: Depth control (always active)
         depth_error = self.target_depth - self.current_depth
         cmd.linear.z = depth_error * self.depth_gain
-        
-        # Clamp depth command for safety
         cmd.linear.z = max(-1.5, min(cmd.linear.z, 1.5))
         
-        # Trigger flare avoidance if flare appears
-        if self.flare_detected and self.state in [self.SEARCHING, self.CENTERING, self.APPROACHING]:
+        # Check if we should enter flare avoidance
+        if self.should_avoid_flare() and self.state in [self.SEARCHING, self.CENTERING, self.APPROACHING]:
+            self.get_logger().warn(
+                f'🚧 FLARE CLOSE ({self.flare_distance:.2f}m) - Gentle avoidance',
+                throttle_duration_sec=1.0
+            )
             if self.flare_avoidance_start_time == 0.0:
                 self.flare_avoidance_start_time = time.time()
             self.state = self.AVOIDING_FLARE
@@ -215,7 +266,6 @@ class ImprovedGateNavigator(Node):
             self.transition_to(self.CENTERING)
             return cmd
         
-        # Oscillating search
         elapsed = time.time() - self.state_start_time
         sweep_period = 8.0
         sweep_phase = (elapsed % sweep_period) / sweep_period
@@ -237,12 +287,8 @@ class ImprovedGateNavigator(Node):
         return cmd
     
     def centering_behavior(self, cmd: Twist) -> Twist:
-        """
-        IMPROVED: More aggressive centering, longer timeout
-        Only proceed when gate is well-centered OR timeout reached
-        """
+        """Center on gate before approaching"""
         
-        # Check if gate is lost
         if not self.gate_detected:
             if self.gate_lost_time > 0.0:
                 lost_duration = time.time() - self.gate_lost_time
@@ -253,28 +299,24 @@ class ImprovedGateNavigator(Node):
                     cmd.linear.x = 0.0
                     cmd.angular.z = -self.frame_position * self.yaw_correction_gain
                     self.get_logger().warn(
-                        f'🔍 Gate lost - holding (last pos: {self.frame_position:+.2f})',
+                        f'🔍 Gate lost - holding position',
                         throttle_duration_sec=0.5
                     )
             return cmd
         
-        # Initialize centering timer
         if self.centering_start_time == 0.0:
             self.centering_start_time = time.time()
         
         centering_elapsed = time.time() - self.centering_start_time
         
-        # IMPROVED: Only timeout if we've been trying for a long time
         if centering_elapsed > self.centering_max_time:
-            self.get_logger().warn(f'⏰ Centering max time reached ({centering_elapsed:.1f}s) - proceeding')
+            self.get_logger().warn(f'⏰ Centering timeout - proceeding')
             self.centering_start_time = 0.0
             self.transition_to(self.APPROACHING)
             return cmd
         
-        # Calculate yaw correction from frame position
         yaw_correction = -self.frame_position * self.yaw_correction_gain
         
-        # Check if centered
         is_centered = abs(self.frame_position) < self.centering_threshold
         is_confident = self.confidence > 0.7
         
@@ -284,12 +326,11 @@ class ImprovedGateNavigator(Node):
             self.transition_to(self.APPROACHING)
             return cmd
         
-        # CENTERING MOTION: NO FORWARD, ONLY YAW
+        # CENTERING: NO FORWARD, ONLY YAW
         cmd.linear.x = 0.0
         cmd.linear.y = 0.0
         cmd.angular.z = yaw_correction
         
-        # Extra aggressive if near edge
         if abs(self.frame_position) > 0.6:
             cmd.angular.z *= 1.8
             self.get_logger().warn(
@@ -297,108 +338,127 @@ class ImprovedGateNavigator(Node):
                 throttle_duration_sec=0.3
             )
         
-        # Log progress
         self.get_logger().info(
-            f'🎯 CENTERING: pos={self.frame_position:+.2f}, '
-            f'yaw={cmd.angular.z:+.2f}, conf={self.confidence:.2f}, '
-            f't={centering_elapsed:.1f}s, depth={self.current_depth:.2f}m',
+            f'🎯 CENTERING: pos={self.frame_position:+.2f}, yaw={cmd.angular.z:+.2f}',
             throttle_duration_sec=0.3
         )
         
         return cmd
     
     def approaching_behavior(self, cmd: Twist) -> Twist:
-        """Approach gate while maintaining center alignment"""
+        """Approach gate while maintaining alignment"""
         
         if not self.gate_detected:
             if self.gate_lost_time > 0.0:
                 lost_duration = time.time() - self.gate_lost_time
                 if lost_duration > self.gate_lost_timeout:
-                    self.get_logger().warn(f'❌ Gate lost for {lost_duration:.1f}s - returning to search')
+                    self.get_logger().warn('❌ Gate lost - returning to search')
                     self.transition_to(self.SEARCHING)
                 else:
                     cmd.linear.x = 0.1
                     cmd.angular.z = -self.frame_position * self.yaw_correction_gain
-                    self.get_logger().warn(
-                        f'🔍 Gate lost - slowing (last pos: {self.frame_position:+.2f})',
-                        throttle_duration_sec=0.5
-                    )
             return cmd
         
-        # Check if ready to pass
         if self.estimated_distance < self.passing_distance and self.estimated_distance > 0:
             self.get_logger().info(f'🚀 Within passing distance ({self.estimated_distance:.2f}m)')
             self.transition_to(self.PASSING)
             return cmd
         
-        # If gate drifts too far, go back to centering
         if abs(self.frame_position) > 0.35:
-            self.get_logger().warn(
-                f'⚠️ Gate drifted (pos={self.frame_position:+.2f}) - RE-CENTERING'
-            )
+            self.get_logger().warn(f'⚠️ Gate drifted - RE-CENTERING')
             self.transition_to(self.CENTERING)
             return cmd
         
-        # Approach with gentle alignment correction
+        # Approach with alignment correction
         cmd.linear.x = self.approach_speed
         cmd.angular.z = -self.frame_position * self.yaw_correction_gain * 0.6
         
-        # Reduce speed for partial gate
         if self.partial_gate or self.confidence < 0.8:
             cmd.linear.x *= 0.7
         
         if self.estimated_distance < 999:
             self.get_logger().info(
-                f'➡️ APPROACH: dist={self.estimated_distance:.2f}m, '
-                f'pos={self.frame_position:+.2f}, yaw={cmd.angular.z:+.2f}, '
-                f'depth={self.current_depth:.2f}m',
+                f'➡️ APPROACH: dist={self.estimated_distance:.2f}m, pos={self.frame_position:+.2f}',
                 throttle_duration_sec=0.4
             )
         
         return cmd
     
     def avoiding_flare_behavior(self, cmd: Twist) -> Twist:
-        """Frame-aware flare avoidance"""
+        """
+        CRITICAL: Smart flare avoidance
+        1. Minimal lateral movement (just enough to clear)
+        2. Continue moving forward (don't stop)
+        3. Maintain gate tracking via yaw correction
+        4. Exit as soon as flare is clear
+        """
         
         if self.flare_avoidance_start_time == 0.0:
             self.flare_avoidance_start_time = time.time()
         
         elapsed = time.time() - self.flare_avoidance_start_time
         
-        if not self.flare_detected and elapsed > 1.0:
-            self.get_logger().info('✅ Flare cleared for 1s - resuming navigation')
+        # Check exit conditions
+        flare_cleared = not self.flare_detected and elapsed > 1.0
+        flare_far = self.flare_distance > self.flare_critical_distance + 0.5
+        timeout = elapsed > self.flare_max_duration
+        
+        if flare_cleared or flare_far:
+            self.get_logger().info('✅ Flare cleared - resuming navigation')
             self.flare_avoidance_start_time = 0.0
-            self.transition_to(self.CENTERING if self.gate_detected else self.SEARCHING)
+            
+            if self.gate_detected:
+                if abs(self.frame_position) > 0.2:
+                    self.transition_to(self.CENTERING)
+                else:
+                    self.transition_to(self.APPROACHING)
+            else:
+                self.transition_to(self.SEARCHING)
             return cmd
         
-        if elapsed > 10.0:
-            self.get_logger().warn('⏰ Flare avoidance timeout - returning to search')
+        if timeout:
+            self.get_logger().warn('⏰ Flare avoidance timeout - forcing exit')
             self.flare_avoidance_start_time = 0.0
             self.transition_to(self.SEARCHING)
             return cmd
         
-        # Smart avoidance considering gate position
-        base_lateral_speed = self.flare_avoidance_direction * 0.8
+        # SMART AVOIDANCE STRATEGY:
+        # 1. Small lateral movement to side
+        # 2. Keep moving forward (don't stop!)
+        # 3. Correct yaw to maintain gate tracking
         
+        # Gentle lateral movement
+        lateral_speed = self.flare_avoidance_direction * self.flare_lateral_speed
+        
+        # CRITICAL: Reduce lateral if gate is off-center
+        # This prevents over-correction that loses gate
         if self.gate_detected:
-            if self.frame_position < -0.3 and base_lateral_speed < 0:
-                base_lateral_speed *= 0.3
-            elif self.frame_position > 0.3 and base_lateral_speed > 0:
-                base_lateral_speed *= 0.3
+            if abs(self.frame_position) > 0.4:
+                # Gate is getting off-center, reduce lateral movement
+                lateral_speed *= 0.3
+                self.get_logger().warn(
+                    f'⚠️ Reducing lateral - gate drifting (pos={self.frame_position:+.2f})',
+                    throttle_duration_sec=0.5
+                )
             
+            # Maintain alignment with gate
             cmd.angular.z = -self.frame_position * self.yaw_correction_gain * 0.5
         else:
-            self.get_logger().error('❌ GATE LOST DURING FLARE AVOIDANCE')
-            cmd.angular.z = 0.3
-            base_lateral_speed *= 0.5
+            # Lost gate - gentle search while avoiding
+            cmd.angular.z = 0.2 * self.flare_avoidance_direction
+            self.get_logger().error(
+                '❌ GATE LOST DURING AVOIDANCE - gentle recovery',
+                throttle_duration_sec=0.5
+            )
         
-        cmd.linear.y = base_lateral_speed
-        cmd.linear.x = 0.3
+        cmd.linear.y = lateral_speed
+        cmd.linear.x = self.flare_forward_speed  # Keep moving forward
         
         self.get_logger().warn(
-            f'🚧 AVOIDING: lat={cmd.linear.y:.2f}, yaw={cmd.angular.z:.2f}, '
-            f'pos={self.frame_position:+.2f}, t={elapsed:.1f}s',
-            throttle_duration_sec=0.5
+            f'🚧 AVOIDING: lat={cmd.linear.y:+.2f}, fwd={cmd.linear.x:.2f}, '
+            f'yaw={cmd.angular.z:+.2f}, dist={self.flare_distance:.2f}m, '
+            f'gate_pos={self.frame_position:+.2f}, t={elapsed:.1f}s',
+            throttle_duration_sec=0.3
         )
         
         return cmd
@@ -407,7 +467,7 @@ class ImprovedGateNavigator(Node):
         """Pass through gate at full speed"""
         if self.passing_start_time == 0.0:
             self.passing_start_time = time.time()
-            self.get_logger().info('🚀 PASSING THROUGH GATE - FULL SPEED AHEAD!')
+            self.get_logger().info('🚀 PASSING THROUGH GATE - FULL SPEED!')
         
         elapsed = time.time() - self.passing_start_time
         
@@ -434,10 +494,12 @@ class ImprovedGateNavigator(Node):
             detection_time = (self.gate_first_detected_time - self.mission_start_time 
                              if self.gate_first_detected_time else 0)
             
+            self.get_logger().info('='*70)
             self.get_logger().info('🎉 GATE NAVIGATION MISSION COMPLETE')
             self.get_logger().info(f'   Total time: {total_time:.2f}s')
             self.get_logger().info(f'   Detection: {detection_time:.2f}s')
             self.get_logger().info(f'   Navigation: {total_time - detection_time:.2f}s')
+            self.get_logger().info('='*70)
         
         cmd.linear.x = 0.0
         cmd.linear.y = 0.0
@@ -475,7 +537,7 @@ class ImprovedGateNavigator(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = ImprovedGateNavigator()
+    node = SmartGateNavigator()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
@@ -483,7 +545,7 @@ def main(args=None):
     finally:
         stop_cmd = Twist()
         node.cmd_vel_pub.publish(stop_cmd)
-        node.get_logger().info('Gate Navigator shutting down')
+        node.get_logger().info('Smart Gate Navigator shutting down')
         node.destroy_node()
         rclpy.shutdown()
 

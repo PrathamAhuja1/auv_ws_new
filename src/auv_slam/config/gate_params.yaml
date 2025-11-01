@@ -1,8 +1,8 @@
-# Gate Detection Parameters
+# Gate Navigation Parameters - SMART FLARE AVOIDANCE VERSION
 
 gate_detector_node:
   ros__parameters:
-    # ===== HSV RANGES - Pure colors for Gazebo =====
+    # HSV RANGES - Pure colors for Gazebo
     red_lower1: [0, 100, 100]
     red_upper1: [10, 255, 255]
     red_lower2: [170, 100, 100]
@@ -26,24 +26,24 @@ gate_detector_node:
     
     publish_debug: true
 
-# Gate Navigation Parameters - FIXED for proper centering
+# Gate Navigation Parameters - OPTIMIZED FOR SMOOTH FLARE AVOIDANCE
 gate_navigator_node:
   ros__parameters:
     # Depth control
-    target_depth: -1.5
-    depth_correction_gain: 1.5
+    target_depth: -1.7
+    depth_correction_gain: 2.0
     
     # Search behavior
     search_forward_speed: 0.5
     search_rotation_speed: 0.15
     
-    # CENTERING parameters (NEW)
-    centering_threshold: 0.15      # Gate must be within ±15% of frame center
-    centering_timeout: 5.0         # Max time to spend centering
+    # Centering parameters
+    centering_threshold: 0.12      # Gate must be within ±12% of center
+    centering_max_time: 10.0       # Max 10s for centering
     
     # Approach parameters
-    approach_speed: 0.7            # Speed when gate is centered
-    yaw_correction_gain: 2.0       # INCREASED for faster centering
+    approach_speed: 0.7
+    yaw_correction_gain: 2.5
     approach_distance: 3.0
     
     # Passing parameters
@@ -51,6 +51,24 @@ gate_navigator_node:
     passing_distance: 1.5
     passing_duration: 8.0
     
-    # Flare avoidance
-    flare_avoidance_gain: 0.8
-    flare_avoidance_duration: 3.0
+    # =============================================
+    # CRITICAL: Smart Flare Avoidance Parameters
+    # =============================================
+    
+    # Only trigger avoidance when flare is THIS close
+    # (2m gives time to react without panicking)
+    flare_critical_distance: 2.0
+    
+    # Gentle lateral movement (0.4 m/s is slow and controlled)
+    # This prevents over-correction and gate loss
+    flare_lateral_speed: 0.4
+    
+    # Keep moving forward during avoidance (0.3 m/s)
+    # This ensures progress and prevents stalling
+    flare_forward_speed: 0.3
+    
+    # Maximum time to spend avoiding (10s timeout)
+    # Prevents infinite avoidance loops
+    flare_max_duration: 10.0
+    
+    # =============================================
