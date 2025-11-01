@@ -326,20 +326,28 @@ class SmartGateNavigator(Node):
             self.transition_to(self.APPROACHING)
             return cmd
         
-        # CENTERING: NO FORWARD, ONLY YAW
-        cmd.linear.x = 0.0
+        # IMPROVED CENTERING: Slow forward + yaw correction
+        # This maintains progress while aligning
+        if abs(self.frame_position) < 0.25:
+            # Close to center - move forward slowly
+            cmd.linear.x = 0.3
+        else:
+            # Far from center - stop and align first
+            cmd.linear.x = 0.0
+        
         cmd.linear.y = 0.0
         cmd.angular.z = yaw_correction
         
         if abs(self.frame_position) > 0.6:
             cmd.angular.z *= 1.8
+            cmd.linear.x = 0.0  # Stop completely if near edge
             self.get_logger().warn(
                 f'🚨 GATE NEAR EDGE (pos={self.frame_position:+.2f}) - AGGRESSIVE YAW',
                 throttle_duration_sec=0.3
             )
         
         self.get_logger().info(
-            f'🎯 CENTERING: pos={self.frame_position:+.2f}, yaw={cmd.angular.z:+.2f}',
+            f'🎯 CENTERING: pos={self.frame_position:+.2f}, yaw={cmd.angular.z:+.2f}, fwd={cmd.linear.x:.2f}',
             throttle_duration_sec=0.3
         )
         
