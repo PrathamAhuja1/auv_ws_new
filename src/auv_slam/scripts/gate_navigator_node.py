@@ -302,7 +302,7 @@ class SmartGateNavigator(Node):
         return cmd
     
     def centering_behavior(self, cmd: Twist) -> Twist:
-        """SIMPLIFIED: Just keep gate in frame, don't perfectly center"""
+        """PROPER ALIGNMENT: Get gate centered before approaching"""
         
         if not self.gate_detected:
             if self.gate_lost_time > 0.0:
@@ -319,42 +319,70 @@ class SmartGateNavigator(Node):
                     )
             return cmd
         
-        # CRITICAL CHANGE: Don't wait for perfect centering
-        # Just ensure gate is safely in frame, then MOVE FORWARD
+        # CRITICAL: Proper alignment for safe passage
+        # Center the gate PROPERLY before approaching
         
-        # Gate is "safe" if it's not near frame edges
-        is_safe_in_frame = abs(self.frame_position) < 0.5  # Within ±50% of center
+        # Calculate how well centered we are
+        alignment_quality = abs(self.frame_position)
         
-        # If gate is safely in frame, START APPROACHING immediately
-        if is_safe_in_frame:
+        # Good alignment: within ±15% of center
+        is_well_aligned = alignment_quality < 0.15
+        
+        # Has confidence (full gate visible)
+        has_confidence = self.confidence > 0.8 and not self.partial_gate
+        
+        # Check centering timeout
+        if self.centering_start_time == 0.0:
+            self.centering_start_time = time.time()
+        
+        centering_elapsed = time.time() - self.centering_start_time
+        
+        if centering_elapsed > 8.0:
+            self.get_logger().warn('⏰ Centering timeout - proceeding anyway')
+            self.centering_start_time = 0.0
+            self.transition_to(self.APPROACHING)
+            return cmd
+        
+        # If well aligned and confident, proceed
+        if is_well_aligned and has_confidence:
             self.get_logger().info(
-                f'✅ Gate in frame (pos={self.frame_position:+.2f}) - START APPROACHING'
+                f'✅ GATE PROPERLY ALIGNED (pos={self.frame_position:+.2f}) - APPROACHING'
             )
             self.centering_start_time = 0.0
             self.transition_to(self.APPROACHING)
             return cmd
         
-        # Gate too far to edge - gentle yaw correction while moving forward
-        yaw_correction = -self.frame_position * self.yaw_correction_gain * 0.8
+        # ALIGNMENT STRATEGY:
+        # 1. Stop forward motion to align properly
+        # 2. Apply pure yaw rotation to center gate
+        # 3. Once aligned, move forward
         
-        # CRITICAL: Keep moving forward (don't stop!)
-        cmd.linear.x = 0.4  # Always move forward
-        cmd.linear.y = 0.0
-        cmd.angular.z = yaw_correction
+        yaw_correction = -self.frame_position * 3.0  # Strong yaw gain for alignment
         
-        # Only stop if VERY close to edge
-        if abs(self.frame_position) > 0.7:
-            cmd.linear.x = 0.2  # Slow down but don't stop
-            cmd.angular.z *= 1.5  # Stronger yaw
-            self.get_logger().warn(
-                f'⚠️ Gate near edge (pos={self.frame_position:+.2f}) - slowing',
+        if alignment_quality > 0.3:
+            # Far from center - STOP and rotate
+            cmd.linear.x = 0.0
+            cmd.angular.z = yaw_correction
+            self.get_logger().info(
+                f'🔄 ALIGNING (far): pos={self.frame_position:+.2f}, yaw={cmd.angular.z:+.2f}',
                 throttle_duration_sec=0.3
             )
-        
-        self.get_logger().info(
-            f'🎯 KEEP IN FRAME: pos={self.frame_position:+.2f}, yaw={cmd.angular.z:+.2f}, fwd={cmd.linear.x:.2f}',
-            throttle_duration_sec=0.3
-        )
+        elif alignment_quality > 0.15:
+            # Moderately off - Slow forward + rotation
+            cmd.linear.x = 0.2
+            cmd.angular.z = yaw_correction * 0.8
+            self.get_logger().info(
+                f'🔄 ALIGNING (moderate): pos={self.frame_position:+.2f}, yaw={cmd.angular.z:+.2f}',
+                throttle_duration_sec=0.3
+            )
+        else:
+            # Nearly centered - gentle correction
+            cmd.linear.x = 0.3
+            cmd.angular.z = yaw_correction * 0.5
+            self.get_logger().info(
+                f'🎯 FINE TUNING: pos={self.frame_position:+.2f}, yaw={cmd.angular.z:+.2f}',
+                throttle_duration_sec=0.3
+            )
         
         return cmd
     

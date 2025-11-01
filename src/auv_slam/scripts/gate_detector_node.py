@@ -276,7 +276,7 @@ class ImprovedGateDetector(Node):
         ]
         
         if flare_detected:
-            status_lines.append("⚠️ FLARE!")
+            status_lines.append("FLARE!")
         if gate_detected:
             if partial_gate:
                 status_lines.append(f"PARTIAL @ {frame_position:+.2f}")
