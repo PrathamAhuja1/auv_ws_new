@@ -1,60 +1,56 @@
-# Place this in: config/gate_params.yaml
+# Gate Detection Parameters
 
 gate_detector_node:
   ros__parameters:
-    # ===== FIXED HSV RANGES - Red excludes orange =====
-    # Red color (H: 0-10 and 170-180) - EXCLUDES orange (H: 11-25)
-    red_lower1: [0, 120, 70]      # Low hue red (pure red)
-    red_upper1: [10, 255, 255]    # Stops BEFORE orange starts at H=11
-    red_lower2: [170, 120, 70]    # High hue red
+    # ===== HSV RANGES - Pure colors for Gazebo =====
+    red_lower1: [0, 100, 100]
+    red_upper1: [10, 255, 255]
+    red_lower2: [170, 100, 100]
     red_upper2: [180, 255, 255]
     
-    # Green color (H: 35-85) - True green, excludes yellow
-    green_lower: [35, 100, 70]
-    green_upper: [85, 255, 255]
+    green_lower: [40, 100, 100]
+    green_upper: [80, 255, 255]
     
-    # Orange flare (H: 11-25) - For explicit detection and rejection
-    orange_lower: [11, 100, 100]
+    orange_lower: [10, 120, 120]
     orange_upper: [25, 255, 255]
     
-    # ===== STRICTER DETECTION PARAMETERS =====
-    # Gate stripes are large and vertical
-    min_area_strict: 75           # Minimum area for confident stripe
-    min_area_relaxed: 25          # Fallback minimum
-    
-    # Aspect ratio (h/w) - Gate stripes are VERTICAL
-    aspect_threshold: 1.5         # h/w must be > 1.5 (vertical)
-    
-    # Flare rejection parameters
-    flare_max_area: 300           # Flares are small
-    flare_aspect_max: 1.5         # Flares are more circular/square
-    
-    # Gate physical dimensions
+    # Detection parameters
+    min_area_strict: 300
+    min_area_relaxed: 80
+    aspect_threshold: 0.8
     gate_width_meters: 1.5
     
     # Temporal filtering
     detection_history_size: 3
     min_detections_for_confirm: 1
     
-    # Debug output
     publish_debug: true
 
+# Gate Navigation Parameters - FIXED for proper centering
 gate_navigator_node:
   ros__parameters:
+    # Depth control
     target_depth: -1.5
     depth_correction_gain: 1.5
     
-    # INCREASED SPEEDS - Rulebook allows up to 15 mins total
-    search_forward_speed: 0.8      # Was 0.5 - search faster
-    search_rotation_speed: 0.2     # Was 0.15 - scan faster
+    # Search behavior
+    search_forward_speed: 0.5
+    search_rotation_speed: 0.15
     
-    approach_speed: 1.2            # Was 0.7 - MUCH faster approach
-    passing_speed: 1.5             # Was 1.0 - maximum speed through gate
-    passing_duration: 6.0          # Was 8.0 - shorter (faster speed)
+    # CENTERING parameters (NEW)
+    centering_threshold: 0.15      # Gate must be within ±15% of frame center
+    centering_timeout: 5.0         # Max time to spend centering
     
-    yaw_correction_gain: 1.5       # Was 1.2 - more aggressive turning
-    approach_distance: 4.0         # Was 3.0 - start approaching earlier
-    passing_distance: 1.8          # Was 1.5 - commit to pass earlier
+    # Approach parameters
+    approach_speed: 0.7            # Speed when gate is centered
+    yaw_correction_gain: 2.0       # INCREASED for faster centering
+    approach_distance: 3.0
     
-    flare_avoidance_gain: 1.5      # Was 0.8 - faster avoidance
+    # Passing parameters
+    passing_speed: 1.0
+    passing_distance: 1.5
+    passing_duration: 8.0
+    
+    # Flare avoidance
+    flare_avoidance_gain: 0.8
     flare_avoidance_duration: 3.0
