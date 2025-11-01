@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+"""
+FIXED Thruster Mapper - Corrected depth control sign
+Key fix: Removed Z-axis negation that was causing inverted depth control
+"""
 
 import rclpy
 from rclpy.node import Node
@@ -19,14 +23,14 @@ class EnhancedThrusterMapper(Node):
         self.dead_zone = self.get_parameter('dead_zone').value
         self.use_twist = self.get_parameter('use_twist_input').value
         
-        # Thruster Allocation Matrix - FIXED SURGE DIRECTION
+        # Thruster Allocation Matrix
         self.TAM = np.array([
             [-1.0,  -1.0,   0.0,   0.0,   0.0,  -1.0],  # T1 (FL)
             [-1.0,   1.0,   0.0,   0.0,   0.0,   1.0],  # T2 (FR)
             [ 1.0,  -1.0,   0.0,   0.0,   0.0,   1.0],  # T3 (BL)
             [ 1.0,   1.0,   0.0,   0.0,   0.0,  -1.0],  # T4 (BR)
-            [ 0.0,   0.0,   1.0,   0.0,   0.2,   0.0],  # T5 (D1)
-            [ 0.0,   0.0,   1.0,   0.0,  -0.2,   0.0],  # T6 (D2)
+            [ 0.0,   0.0,   1.0,   0.0,   0.2,   0.0],  # T5 (D1) - CORRECT: +1.0
+            [ 0.0,   0.0,   1.0,   0.0,  -0.2,   0.0],  # T6 (D2) - CORRECT: +1.0
         ], dtype=np.float64)
         
         self.TAM_pinv = np.linalg.pinv(self.TAM)
@@ -47,15 +51,54 @@ class EnhancedThrusterMapper(Node):
         self.last_wrench = np.zeros(6)
         self.last_thrusts = np.zeros(6)
         
-        self.get_logger().info('Enhanced Thruster Mapper initialized')
-        self.get_logger().info(f'Max thrust: {self.max_thrust} N')
-        self.get_logger().info(f'Input mode: {"Twist" if self.use_twist else "Wrench"}')
+        self.get_logger().info('✅ FIXED Thruster Mapper initialized')
+        self.get_logger().info('   - Correct depth control (no Z negation)')
+        self.get_logger().info(f'   - Max thrust: {self.max_thrust} N')
+        self.get_logger().info(f'   - Input mode: {"Twist" if self.use_twist else "Wrench"}')
     
     def twist_callback(self, msg: Twist):
+        """
+        CRITICAL FIX: Removed Z negation
+        
+        ROS/Gazebo convention:
+        - +X = forward, -X = backward
+        - +Y = left, -Y = right
+        - +Z = up, -Z = down
+        
+        Vertical thrusters point DOWN, so:
+        - Positive thrust = push DOWN (descend)
+        - Negative thrust = push UP (ascend)
+        
+        Depth control logic:
+        - If too shallow (current > target), need to descend → cmd.linear.z < 0
+        - Negative cmd.linear.z → negative wrench[2] → negative thrust → ascend
+        
+        Wait, that's still wrong! Let me reconsider...
+        
+        Actually, the thruster physical setup:
+        - Thrusters point DOWN
+        - Spinning them forward pushes water DOWN, creating UP force on AUV
+        - So positive thrust = AUV goes UP
+        - Negative thrust = AUV goes DOWN
+        
+        Therefore:
+        - To descend: need negative thrust → negative wrench → negative cmd.linear.z
+        - To ascend: need positive thrust → positive wrench → positive cmd.linear.z
+        
+        Current code in navigator:
+        depth_error = target_depth - current_depth
+        cmd.linear.z = depth_error * gain
+        
+        If current = -1m, target = -2m:
+        error = -2 - (-1) = -1
+        cmd.linear.z = -1 * gain = negative → descend ✓
+        
+        This is CORRECT! No negation needed.
+        """
         wrench = np.array([
             msg.linear.x,
             msg.linear.y,
-            -msg.linear.z,
+            msg.linear.z,  # ✓ FIXED: No negation
             0.0,
             0.0,
             msg.angular.z,
