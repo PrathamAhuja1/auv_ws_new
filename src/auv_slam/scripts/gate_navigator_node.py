@@ -223,12 +223,27 @@ class SmartGateNavigator(Node):
     def control_loop(self):
         cmd = Twist()
         
-        # CRITICAL: Depth control (always active)
+        # FIXED DEPTH CONTROL - Proper deadband to prevent oscillation
         depth_error = self.target_depth - self.current_depth
-        cmd.linear.z = depth_error * self.depth_gain
-        cmd.linear.z = max(-1.5, min(cmd.linear.z, 1.5))
+        depth_deadband = 0.3  # No correction within ±30cm
         
-        # Check if we should enter flare avoidance
+        if abs(depth_error) < depth_deadband:
+            # Within deadband - NO correction
+            cmd.linear.z = 0.0
+        elif abs(depth_error) < 0.6:
+            # Small error - gentle correction
+            cmd.linear.z = depth_error * 0.8
+            cmd.linear.z = max(-0.4, min(cmd.linear.z, 0.4))
+        else:
+            # Large error - stronger correction
+            cmd.linear.z = depth_error * 1.2
+            cmd.linear.z = max(-1.0, min(cmd.linear.z, 1.0))
+            self.get_logger().warn(
+                f'⚠️ Depth error: {depth_error:.2f}m',
+                throttle_duration_sec=2.0
+            )
+        
+        # Check flare avoidance
         if self.should_avoid_flare() and self.state in [self.SEARCHING, self.CENTERING, self.APPROACHING]:
             self.get_logger().warn(
                 f'🚧 FLARE CLOSE ({self.flare_distance:.2f}m) - Gentle avoidance',
@@ -344,7 +359,7 @@ class SmartGateNavigator(Node):
         return cmd
     
     def approaching_behavior(self, cmd: Twist) -> Twist:
-        """Approach gate while maintaining alignment"""
+        """Approach gate while keeping it in frame"""
         
         if not self.gate_detected:
             if self.gate_lost_time > 0.0:
@@ -357,27 +372,39 @@ class SmartGateNavigator(Node):
                     cmd.angular.z = -self.frame_position * self.yaw_correction_gain
             return cmd
         
+        # Check if close enough to start passing
         if self.estimated_distance < self.passing_distance and self.estimated_distance > 0:
             self.get_logger().info(f'🚀 Within passing distance ({self.estimated_distance:.2f}m)')
             self.transition_to(self.PASSING)
             return cmd
         
-        if abs(self.frame_position) > 0.35:
-            self.get_logger().warn(f'⚠️ Gate drifted - RE-CENTERING')
+        # Add hysteresis to prevent oscillation
+        if not hasattr(self, 'frame_violation_count'):
+            self.frame_violation_count = 0
+        
+        if abs(self.frame_position) > 0.7:
+            self.frame_violation_count += 1
+        else:
+            self.frame_violation_count = 0
+        
+        # Only trigger re-center after 10 consecutive violations (0.5 seconds)
+        if self.frame_violation_count > 10:
+            self.get_logger().warn(f'⚠️ Gate sustained edge violation - re-center')
+            self.frame_violation_count = 0
             self.transition_to(self.CENTERING)
             return cmd
         
-        # Approach with alignment correction
+        # APPROACH: Just move forward with gentle yaw
         cmd.linear.x = self.approach_speed
-        cmd.angular.z = -self.frame_position * self.yaw_correction_gain * 0.6
+        cmd.angular.z = -self.frame_position * self.yaw_correction_gain * 0.3  # Even gentler
         
         if self.partial_gate or self.confidence < 0.8:
-            cmd.linear.x *= 0.7
+            cmd.linear.x *= 0.8
         
         if self.estimated_distance < 999:
             self.get_logger().info(
                 f'➡️ APPROACH: dist={self.estimated_distance:.2f}m, pos={self.frame_position:+.2f}',
-                throttle_duration_sec=0.4
+                throttle_duration_sec=0.5
             )
         
         return cmd
