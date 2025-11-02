@@ -65,5 +65,7 @@ gate_navigator_node:
     # Maximum time to spend avoiding (10s timeout)
     # Prevents infinite avoidance loops
     flare_max_duration: 10.0
+
+    gate_x_position: -8.0
+    gate_clearance_distance: 0.5
     
-    # =============================================

@@ -32,6 +32,12 @@ class ProperGateNavigator(Node):
         self.COMPLETED = 6
         
         self.state = self.SEARCHING
+
+        self.declare_parameter('gate_x_position', -8.0)
+        self.declare_parameter('gate_clearance_distance', 0.5)
+
+        self.gate_x_position = self.get_parameter('gate_x_position').value
+        self.gate_clearance_distance = self.get_parameter('gate_clearance_distance').value
         
         # Parameters
         self.declare_parameter('target_depth', -1.7)
@@ -460,37 +466,59 @@ class ProperGateNavigator(Node):
     def passing_behavior(self, cmd: Twist) -> Twist:
         """
         FULL PASSAGE: Maximum speed straight through
-        Based on distance traveled, not time
+        Completes when AUV safely clears the gate with proper buffer
         """
         
         if self.passing_start_position is None:
             self.passing_start_position = self.current_position
+            # Gate is at X=-8 (from world file)
+            self.gate_x_position = -8.0
             self.get_logger().info('🚀 PASSAGE STARTED - FULL SPEED AHEAD!')
         
-        # Calculate distance traveled
-        if self.current_position and self.passing_start_position:
-            dx = self.current_position[0] - self.passing_start_position[0]
-            dy = self.current_position[1] - self.passing_start_position[1]
-            distance_traveled = math.sqrt(dx*dx + dy*dy)
+        # Check if we've SAFELY cleared the gate based on X-position
+        if self.current_position:
+            current_x = self.current_position[0]
             
-            # Gate width + safety margin
-            required_distance = self.gate_width + 2.5  # 1.5m + 2.5m = 4m total
+
+            gate_clearance_distance = 0.5
+            gate_cleared_threshold = self.gate_x_position + gate_clearance_distance
             
-            if distance_traveled >= required_distance:
-                self.get_logger().info(
-                    f'✅ GATE PASSED! Traveled {distance_traveled:.2f}m'
-                )
+            if current_x > gate_cleared_threshold:
+                # Calculate actual distance traveled for logging
+                if self.passing_start_position:
+                    dx = self.current_position[0] - self.passing_start_position[0]
+                    dy = self.current_position[1] - self.passing_start_position[1]
+                    distance_traveled = math.sqrt(dx*dx + dy*dy)
+                    
+                    self.get_logger().info('='*70)
+                    self.get_logger().info(f'✅ GATE SAFELY CLEARED!')
+                    self.get_logger().info(f'   Current position: X={current_x:.2f}m')
+                    self.get_logger().info(f'   Gate position: X={self.gate_x_position:.2f}m')
+                    self.get_logger().info(f'   Clearance: {current_x - self.gate_x_position:.2f}m past gate')
+                    self.get_logger().info(f'   Distance traveled: {distance_traveled:.2f}m')
+                    self.get_logger().info('='*70)
+                
                 self.transition_to(self.COMPLETED)
                 return cmd
             
-            completion = (distance_traveled / required_distance) * 100
+            # Show detailed progress through gate
+            distance_past_gate = current_x - self.gate_x_position
+            
+            if distance_past_gate < 0:
+                status = "APPROACHING"
+                progress_pct = 0
+            else:
+                status = "CLEARING"
+                progress_pct = (distance_past_gate / gate_clearance_distance) * 100
+            
             self.get_logger().info(
-                f'🚀 PASSING: {distance_traveled:.2f}m / {required_distance:.2f}m '
-                f'({completion:.0f}%)',
-                throttle_duration_sec=0.3
+                f'🚀 PASSING ({status}): X={current_x:.2f}m, '
+                f'{abs(distance_past_gate):.2f}m {"past" if distance_past_gate > 0 else "before"} gate '
+                f'({progress_pct:.0f}% cleared)',
+                throttle_duration_sec=0.4
             )
         
-        # FULL SPEED - no corrections
+        # FULL SPEED - no corrections during passage
         cmd.linear.x = self.passing_speed
         cmd.linear.y = 0.0
         cmd.angular.z = 0.0
