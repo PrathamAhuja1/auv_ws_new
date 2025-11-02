@@ -206,6 +206,7 @@
       </link>
     </model>
 
+    <!-- Starting Zone - 140cm x 140cm at approximately 12m from gate -->
     <model name="starting_zone">
       <static>true</static>
       <pose>-20 0 0.01 0 0 0</pose>
@@ -225,15 +226,23 @@
       </link>
     </model>
 
-    <!-- ENHANCED GATE - 150cm wide x 150cm tall with LARGER visible stripes -->
+    <!-- ========================================================================== -->
+    <!-- NAVIGATION GATE - CORRECTED ORIENTATION                                   -->
+    <!-- 150cm wide x 150cm tall, positioned ~12m from starting zone               -->
+    <!-- Posts separated in Y-axis (left-right), NOT X-axis                        -->
+    <!-- ========================================================================== -->
     <model name="navigation_gate">
       <static>true</static>
+      <!-- Gate positioned 12m from starting zone, centered at Y=0 -->
       <pose>-8 0 -1.5 0 0 0</pose>
       <link name="gate_link">
         
-        <!-- LEFT POST (RED - PORT SIDE) - ENLARGED STRIPES -->
+        <!-- ============================================================ -->
+        <!-- LEFT POST (RED - PORT SIDE)                                  -->
+        <!-- Position: 0.75m in NEGATIVE Y direction (left from AUV view) -->
+        <!-- ============================================================ -->
         <collision name="left_post_collision">
-          <pose>-0.75 0 0 0 0 0</pose>
+          <pose>0 -0.75 0 0 0 0</pose>
           <geometry>
             <box>
               <size>0.06 0.06 1.5</size>
@@ -243,7 +252,7 @@
         
         <!-- RED STRIPE 1 (bottom) - 25cm x 25cm -->
         <visual name="left_red_1">
-          <pose>-0.75 0 -0.625 0 0 0</pose>
+          <pose>0 -0.75 -0.625 0 0 0</pose>
           <geometry>
             <box>
               <size>0.25 0.25 0.25</size>
@@ -259,7 +268,7 @@
         
         <!-- BLACK STRIPE -->
         <visual name="left_black_1">
-          <pose>-0.75 0 -0.375 0 0 0</pose>
+          <pose>0 -0.75 -0.375 0 0 0</pose>
           <geometry>
             <box>
               <size>0.25 0.25 0.25</size>
@@ -274,7 +283,7 @@
         
         <!-- RED STRIPE 2 -->
         <visual name="left_red_2">
-          <pose>-0.75 0 -0.125 0 0 0</pose>
+          <pose>0 -0.75 -0.125 0 0 0</pose>
           <geometry>
             <box>
               <size>0.25 0.25 0.25</size>
@@ -290,7 +299,7 @@
         
         <!-- BLACK STRIPE -->
         <visual name="left_black_2">
-          <pose>-0.75 0 0.125 0 0 0</pose>
+          <pose>0 -0.75 0.125 0 0 0</pose>
           <geometry>
             <box>
               <size>0.25 0.25 0.25</size>
@@ -305,7 +314,7 @@
         
         <!-- RED STRIPE 3 -->
         <visual name="left_red_3">
-          <pose>-0.75 0 0.375 0 0 0</pose>
+          <pose>0 -0.75 0.375 0 0 0</pose>
           <geometry>
             <box>
               <size>0.25 0.25 0.25</size>
@@ -321,7 +330,7 @@
         
         <!-- BLACK STRIPE (top) -->
         <visual name="left_black_3">
-          <pose>-0.75 0 0.625 0 0 0</pose>
+          <pose>0 -0.75 0.625 0 0 0</pose>
           <geometry>
             <box>
               <size>0.25 0.25 0.25</size>
@@ -334,9 +343,12 @@
           </material>
         </visual>
 
-        <!-- RIGHT POST (GREEN - STARBOARD SIDE) - ENLARGED STRIPES -->
+        <!-- ============================================================== -->
+        <!-- RIGHT POST (GREEN - STARBOARD SIDE)                            -->
+        <!-- Position: 0.75m in POSITIVE Y direction (right from AUV view)  -->
+        <!-- ============================================================== -->
         <collision name="right_post_collision">
-          <pose>0.75 0 0 0 0 0</pose>
+          <pose>0 0.75 0 0 0 0</pose>
           <geometry>
             <box>
               <size>0.06 0.06 1.5</size>
@@ -346,7 +358,7 @@
         
         <!-- GREEN STRIPE 1 (bottom) - 25cm x 25cm -->
         <visual name="right_green_1">
-          <pose>0.75 0 -0.625 0 0 0</pose>
+          <pose>0 0.75 -0.625 0 0 0</pose>
           <geometry>
             <box>
               <size>0.25 0.25 0.25</size>
@@ -362,7 +374,7 @@
         
         <!-- BLACK STRIPE -->
         <visual name="right_black_1">
-          <pose>0.75 0 -0.375 0 0 0</pose>
+          <pose>0 0.75 -0.375 0 0 0</pose>
           <geometry>
             <box>
               <size>0.25 0.25 0.25</size>
@@ -377,7 +389,7 @@
         
         <!-- GREEN STRIPE 2 -->
         <visual name="right_green_2">
-          <pose>0.75 0 -0.125 0 0 0</pose>
+          <pose>0 0.75 -0.125 0 0 0</pose>
           <geometry>
             <box>
               <size>0.25 0.25 0.25</size>
@@ -393,7 +405,7 @@
         
         <!-- BLACK STRIPE -->
         <visual name="right_black_2">
-          <pose>0.75 0 0.125 0 0 0</pose>
+          <pose>0 0.75 0.125 0 0 0</pose>
           <geometry>
             <box>
               <size>0.25 0.25 0.25</size>
@@ -408,7 +420,7 @@
         
         <!-- GREEN STRIPE 3 -->
         <visual name="right_green_3">
-          <pose>0.75 0 0.375 0 0 0</pose>
+          <pose>0 0.75 0.375 0 0 0</pose>
           <geometry>
             <box>
               <size>0.25 0.25 0.25</size>
@@ -424,7 +436,7 @@
         
         <!-- BLACK STRIPE (top) -->
         <visual name="right_black_3">
-          <pose>0.75 0 0.625 0 0 0</pose>
+          <pose>0 0.75 0.625 0 0 0</pose>
           <geometry>
             <box>
               <size>0.25 0.25 0.25</size>
@@ -437,12 +449,15 @@
           </material>
         </visual>
 
-        <!-- TOP BAR (BLACK) -->
+        <!-- ============================================================ -->
+        <!-- TOP BAR (BLACK)                                              -->
+        <!-- Spans 1.5m in Y direction (left-right), connecting posts     -->
+        <!-- ============================================================ -->
         <collision name="top_bar_collision">
           <pose>0 0 0.75 0 0 0</pose>
           <geometry>
             <box>
-              <size>1.5 0.06 0.06</size>
+              <size>0.06 1.5 0.06</size>
             </box>
           </geometry>
         </collision>
@@ -450,7 +465,7 @@
           <pose>0 0 0.75 0 0 0</pose>
           <geometry>
             <box>
-              <size>1.5 0.06 0.06</size>
+              <size>0.06 1.5 0.06</size>
             </box>
           </geometry>
           <material>
@@ -463,7 +478,12 @@
       </link>
     </model>
 
-    <!-- ORANGE FLARE - LARGER AND MORE VISIBLE -->
+    <!-- ========================================================================== -->
+    <!-- ORANGE FLARE - Obstacle to avoid                                          -->
+    <!-- Per rulebook: May be located 4-8m from side, before gate                  -->
+    <!-- Positioned at X=-14 (6m from AUV start), Y=2 (2m to the right)            -->
+    <!-- Height: 150cm tall, ~15cm diameter                                        -->
+    <!-- ========================================================================== -->
     <model name="orange_flare">
       <static>true</static>
       <pose>-14 2 -2.25 0 0 0</pose>
@@ -471,7 +491,7 @@
         <collision name="flare_collision">
           <geometry>
             <cylinder>
-              <radius>0.10</radius>
+              <radius>0.08</radius>
               <length>1.5</length>
             </cylinder>
           </geometry>
@@ -479,7 +499,7 @@
         <visual name="flare_visual">
           <geometry>
             <cylinder>
-              <radius>0.10</radius>
+              <radius>0.08</radius>
               <length>1.5</length>
             </cylinder>
           </geometry>
@@ -495,7 +515,7 @@
           <pose>0 0 0.75 0 0 0</pose>
           <geometry>
             <sphere>
-              <radius>0.12</radius>
+              <radius>0.10</radius>
             </sphere>
           </geometry>
           <material>
@@ -508,7 +528,7 @@
       </link>
     </model>
 
-    <!-- Communication Flares -->
+    <!-- Communication Flares (80cm tall, ~1.6cm diameter) -->
     <model name="red_flare">
       <static>true</static>
       <pose>10 -0.6 -2.6 0 0 0</pose>
@@ -671,13 +691,14 @@
       </link>
     </model>
 
+    <!-- Qualification Gate (150cm wide x 100cm deep, per rulebook) -->
     <model name="qualification_gate">
       <static>true</static>
       <pose>-20 10 -0.5 0 0 0</pose>
       <link name="gate_link">
         
         <collision name="left_post_collision">
-          <pose>-0.75 0 0 0 0 0</pose>
+          <pose>0 -0.75 0 0 0 0</pose>
           <geometry>
             <box>
               <size>0.05 0.05 1.0</size>
@@ -685,7 +706,7 @@
           </geometry>
         </collision>
         <visual name="left_post_visual">
-          <pose>-0.75 0 0 0 0 0</pose>
+          <pose>0 -0.75 0 0 0 0</pose>
           <geometry>
             <box>
               <size>0.05 0.05 1.0</size>
@@ -699,7 +720,7 @@
         </visual>
 
         <collision name="right_post_collision">
-          <pose>0.75 0 0 0 0 0</pose>
+          <pose>0 0.75 0 0 0 0</pose>
           <geometry>
             <box>
               <size>0.05 0.05 1.0</size>
@@ -707,7 +728,7 @@
           </geometry>
         </collision>
         <visual name="right_post_visual">
-          <pose>0.75 0 0 0 0 0</pose>
+          <pose>0 0.75 0 0 0 0</pose>
           <geometry>
             <box>
               <size>0.05 0.05 1.0</size>
@@ -724,7 +745,7 @@
           <pose>0 0 0.5 0 0 0</pose>
           <geometry>
             <box>
-              <size>1.5 0.05 0.05</size>
+              <size>0.05 1.5 0.05</size>
             </box>
           </geometry>
         </collision>
@@ -732,7 +753,7 @@
           <pose>0 0 0.5 0 0 0</pose>
           <geometry>
             <box>
-              <size>1.5 0.05 0.05</size>
+              <size>0.05 1.5 0.05</size>
             </box>
           </geometry>
           <material>
@@ -745,6 +766,7 @@
       </link>
     </model>
 
+    <!-- AUV spawn at starting zone, ~12m from gate, facing gate -->
     <include>
       <uri>model://auv_slam/models/orca4_ign</uri>
       <pose>-20 0 -1.3 0 0 0</pose>

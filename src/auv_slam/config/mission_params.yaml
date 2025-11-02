@@ -21,7 +21,7 @@ gate_navigator_node:
   ros__parameters:
     target_depth: -1.5
     depth_correction_gain: 1.0
-    search_forward_speed: 0.4
+    search_forward_speed: 0.7
     approach_speed: 0.5
     passing_speed: 0.6
     passing_duration: 5.0

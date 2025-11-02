@@ -26,34 +26,29 @@ gate_detector_node:
     
     publish_debug: true
 
-# Gate Navigation Parameters - OPTIMIZED FOR SMOOTH FLARE AVOIDANCE
+# Gate Navigation Parameters
 gate_navigator_node:
   ros__parameters:
-    # Depth control
+  
     target_depth: -1.7
-    depth_correction_gain: 2.0
+    depth_deadband: 0.25
+    depth_gain_weak: 0.5
+    depth_gain_strong: 1.5
     
     # Search behavior
-    search_forward_speed: 0.5
-    search_rotation_speed: 0.15
+    search_speed: 0.4
     
-    # Centering parameters
-    centering_threshold: 0.12      # Gate must be within ±12% of center
-    centering_max_time: 10.0       # Max 10s for centering
-    
-    # Approach parameters
-    approach_speed: 0.7
-    yaw_correction_gain: 2.5
-    approach_distance: 3.0
+    # CRITICAL: Approach parameters
+    approach_speed: 0.6          # Constant forward speed
+    alignment_gain: 2.0           # Proportional yaw control
+    max_yaw_correction: 0.8       # Maximum turn rate (rad/s)
+    min_confidence_for_approach: 0.3
     
     # Passing parameters
     passing_speed: 1.0
-    passing_distance: 1.5
-    passing_duration: 8.0
+    passing_distance: 2.0         # Start passing at 2m
+    passing_duration: 6.0
     
-    # =============================================
-    # CRITICAL: Smart Flare Avoidance Parameters
-    # =============================================
     
     # Only trigger avoidance when flare is THIS close
     # (2m gives time to react without panicking)
