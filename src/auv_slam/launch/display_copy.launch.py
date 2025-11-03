@@ -42,7 +42,7 @@ def generate_launch_description():
     default_model_path = os.path.join(pkg_share_sub, 'urdf/orca4_description.urdf')
     
     default_rviz_config_path = os.path.join(pkg_share_sub, 'rviz/urdf_config.rviz')
-    world_path = os.path.join(pkg_share_sub, "worlds/underwater_world_ign.sdf")
+    world_path = os.path.join(pkg_share_sub, "worlds/qualification_world.sdf")
     bridge_config_path = os.path.join(pkg_share_sub, 'config', 'ign_bridge.yaml')
 
 

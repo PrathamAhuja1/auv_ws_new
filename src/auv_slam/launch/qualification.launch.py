@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Debug Mission Launch - Includes rqt_image_view for gate debugging
-This launch file starts the full mission WITH visual debugging tools
-"""
 
 import os
 from ament_index_python.packages import get_package_share_directory
@@ -17,8 +13,7 @@ def generate_launch_description():
     
     # Config paths
     thruster_params = os.path.join(auv_slam_share, 'config', 'thruster_params.yaml')
-    gate_params = os.path.join(auv_slam_share, 'config', 'gate_params.yaml')
-    navig_params = os.path.join(auv_slam_share, 'config', 'navigation_params.yaml')
+    qual_params = os.path.join(auv_slam_share, 'config', 'qualification_params.yaml')
     
     # Launch arguments
     declare_enable_debug = DeclareLaunchArgument(
@@ -30,7 +25,7 @@ def generate_launch_description():
     # 1. Simulation (Gazebo + RViz)
     display_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(auv_slam_share, 'launch', 'display.launch.py')
+            os.path.join(auv_slam_share, 'launch', 'display_copy.launch.py')
         ),
         launch_arguments={'use_sim_time': 'True'}.items()
     )
@@ -44,25 +39,25 @@ def generate_launch_description():
         parameters=[thruster_params]
     )
     
-    # 3. ULTRA-FIXED Gate Detector
-    gate_detector = Node(
+    # 3.Gate Detector
+    qual_gate_detector = Node(
         package='auv_slam',
-        executable='gate_detector_node.py',
-        name='gate_detector_node',
+        executable='qualification_gate_detector_node.py',
+        name='qualification_gate_detector',
         output='screen',
-        parameters=[gate_params]
+        parameters=[qual_params]
     )
     
     # 4. Gate Navigator (delayed start)
-    gate_navigator = TimerAction(
+    qual_gate_navigator = TimerAction(
         period=3.0,
         actions=[
             Node(
                 package='auv_slam',
-                executable='gate_navigator_node.py',
+                executable='qualification_navigator_node.py',
                 name='gate_navigator_node',
                 output='screen',
-                parameters=[gate_params]
+                parameters=[qual_params]
             )
         ]
     )
@@ -85,7 +80,7 @@ def generate_launch_description():
     
     # 6. rqt_image_view for gate debug visualization
     rqt_image_view = ExecuteProcess(
-        cmd=['rqt_image_view', '/gate/debug_image'],
+        cmd=['rqt_image_view', '/qual_gate/debug_image'],
         output='screen',
         shell=False
     )
@@ -108,10 +103,11 @@ def generate_launch_description():
         declare_enable_debug,
         display_launch,
         thruster_mapper,
-        gate_detector,
-        gate_navigator,
+        qual_gate_detector,
+        qual_gate_navigator,
         safety_monitor,
     #    diagnostic_node,
+        # Debug visualization tools (delayed start to let everything initialize)
         TimerAction(
             period=5.0,
             actions=[rqt_image_view]
