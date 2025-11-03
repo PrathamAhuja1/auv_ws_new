@@ -10,7 +10,6 @@ from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription, ExecuteProcess, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
-import launch
 
 
 def generate_launch_description():
@@ -20,8 +19,8 @@ def generate_launch_description():
     # Paths
     thruster_params = os.path.join(auv_slam_share, 'config', 'thruster_params.yaml')
     
-    # Qualification world path (use the one we created)
-    qual_world_path = '/home/claude/qualification_world.sdf'
+    # Qualification world path - use installed location
+    qual_world_path = os.path.join(auv_slam_share, 'worlds', 'qualification_world.sdf')
     
     # Bridge configuration
     bridge_config_path = os.path.join(auv_slam_share, 'config', 'ign_bridge.yaml')
@@ -63,13 +62,18 @@ def generate_launch_description():
     # 3. Robot State Publisher
     urdf_path = os.path.join(auv_slam_share, 'urdf/orca4_description.urdf')
     
+    # Read URDF file
+    with open(urdf_path, 'r') as urdf_file:
+        robot_description = urdf_file.read()
+    
     robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
         parameters=[{
-            'robot_description': launch.substitutions.Command(['cat ', urdf_path]),
+            'robot_description': robot_description,
             'use_sim_time': True
-        }]
+        }],
+        output='screen'
     )
     
     # 4. Spawn Entity (AUV)
@@ -168,18 +172,6 @@ def generate_launch_description():
         ]
     )
     
-    # 9. RQT Image View for debugging (optional)
-    rqt_image_view = TimerAction(
-        period=6.0,
-        actions=[
-            ExecuteProcess(
-                cmd=['rqt_image_view', '/qual_gate/debug_image'],
-                output='screen',
-                shell=False
-            )
-        ]
-    )
-    
     return LaunchDescription([
         gazebo_launch,
         bridge,
@@ -189,5 +181,4 @@ def generate_launch_description():
         gate_detector,
         navigator,
         safety_monitor,
-        # rqt_image_view,  # Uncomment for visual debugging
     ])
