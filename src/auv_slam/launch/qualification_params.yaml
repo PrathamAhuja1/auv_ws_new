@@ -1,0 +1,96 @@
+qualification_navigator_node:
+  ros__parameters:
+    use_sim_time: true
+    
+    # Depth control
+    target_depth: -1.0  # 1m depth for qualification
+    depth_tolerance: 0.2
+    depth_correction_gain: 1.2
+    
+    # Search behavior
+    search_speed: 0.4
+    search_rotation_speed: 0.3
+    
+    # Approach parameters
+    approach_speed: 0.6
+    approach_yaw_gain: 1.5
+    
+    # Alignment parameters
+    alignment_threshold: 0.1  # ±10% alignment required
+    alignment_yaw_gain: 2.5
+    alignment_max_time: 15.0
+    
+    # Passing parameters
+    passing_trigger_distance: 1.5  # Start passing at 1.5m
+    passing_speed: 0.8
+    gate_clearance: 2.0  # Consider gate cleared after 2m
+    
+    # U-turn parameters
+    u_turn_duration: 8.0  # 8 seconds for 180° turn
+    u_turn_speed: 0.2
+    u_turn_angular_velocity: -0.8
+    
+    # Homing parameters
+    home_position_x: -14.3  # Starting wall position
+    home_position_y: 0.0
+    home_tolerance: 0.5  # 50cm tolerance
+    
+    # Gate position (known from world)
+    gate_position_x: -4.0
+    gate_width: 1.5  # 150cm per rulebook
+
+qualification_gate_detector:
+  ros__parameters:
+    use_sim_time: true
+    
+    # HSV range for ORANGE gate
+    orange_lower: [5, 120, 100]
+    orange_upper: [25, 255, 255]
+    
+    # Detection parameters
+    min_area: 200
+    gate_width_meters: 1.5
+    
+    # Temporal filtering
+    detection_history_size: 5
+    min_confirmations: 2
+    
+    # Morphological operations
+    morph_kernel_size: 5
+    
+    publish_debug: true
+
+# Thruster parameters (reuse from main config)
+simple_thruster_mapper:
+  ros__parameters:
+    use_sim_time: true
+    max_thrust: 10.0
+    min_thrust: -150.0
+    thrust_scale: 20.0
+    vertical_thrust_boost: 2.5
+    deadband_threshold: 0.02
+    max_thrust_rate: 25.0
+
+# Safety parameters for qualification
+enhanced_safety_monitor:
+  ros__parameters:
+    use_sim_time: true
+    
+    # Depth limits
+    max_depth: -3.0
+    min_depth: 0.2
+    
+    # Orientation limits
+    max_roll: 0.785  # 45 degrees
+    max_pitch: 0.785
+    
+    # Pool boundaries (qualification arena)
+    pool_bounds_x: [-15.0, 15.0]
+    pool_bounds_y: [-7.5, 7.5]
+    
+    # Timeouts
+    watchdog_timeout: 5.0
+    max_mission_time: 600.0  # 10 minutes max for qualification
+    
+    # Emergency response
+    emergency_surface_thrust: 1.0
