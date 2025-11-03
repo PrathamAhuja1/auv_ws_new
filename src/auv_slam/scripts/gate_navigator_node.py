@@ -34,7 +34,7 @@ class ProperGateNavigator(Node):
         self.state = self.SEARCHING
 
         self.declare_parameter('gate_x_position', -8.0)
-        self.declare_parameter('gate_clearance_distance', 0.5)
+        self.declare_parameter('gate_clearance_distance', 0.25)
 
         self.gate_x_position = self.get_parameter('gate_x_position').value
         self.gate_clearance_distance = self.get_parameter('gate_clearance_distance').value

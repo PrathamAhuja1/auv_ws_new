@@ -67,5 +67,5 @@ gate_navigator_node:
     flare_max_duration: 10.0
 
     gate_x_position: -8.0
-    gate_clearance_distance: 0.5
+    gate_clearance_distance: 0.25
     
