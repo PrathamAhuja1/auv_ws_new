@@ -211,7 +211,6 @@
     </model>
 
     <!-- Qualification Gate - 150cm wide x 100cm deep, ORANGE marked (per rulebook) -->
-    <!-- Position: ~10m from starting wall -->
     <model name="qualification_gate">
       <static>true</static>
       <pose>-4.0 0 -0.5 0 0 0</pose>
@@ -352,6 +351,12 @@
 
       </link>
     </model>
+
+
+    <include>
+      <uri>model://orca4_ign</uri>
+      <pose>-14.3 0 -0.8 0 0 0</pose>
+    </include>
 
   </world>
 </sdf>
