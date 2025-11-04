@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 FIXED Qualification Launch File
-- Corrected spawn position for qualification task
-- Proper timing to ensure Gazebo is ready
+- Corrected URDF path
+- Proper spawn timing
 - Robot spawns at starting zone
 """
 
@@ -34,8 +34,28 @@ def generate_launch_description():
     # World and model paths
     world_path = os.path.join(auv_slam_share, "worlds/qualification_world.sdf")
     bridge_config_path = os.path.join(auv_slam_share, 'config', 'ign_bridge.yaml')
-    pkg_share_sub = launch_ros.substitutions.FindPackageShare(package='auv_slam').find('auv_slam')
-    default_model_path = os.path.join(pkg_share_sub, 'urdf/orca4_description.urdf')
+    
+    # Try multiple URDF paths (it could be in different locations)
+    possible_paths = [
+        os.path.join(auv_slam_share, 'urdf/orca4_description.urdf'),
+        os.path.join(auv_slam_share, 'src/description/orca4_description.urdf'),
+        os.path.join(auv_slam_share, '../../../src/auv_slam/src/description/orca4_description.urdf'),
+    ]
+    
+    urdf_path = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            urdf_path = path
+            print(f"✓ Found URDF at: {urdf_path}")
+            break
+    
+    if urdf_path is None:
+        print(f"ERROR: URDF not found. Searched:")
+        for p in possible_paths:
+            print(f"  - {p}")
+        print(f"Package share: {auv_slam_share}")
+        print(f"Contents: {os.listdir(auv_slam_share)}")
+        raise FileNotFoundError("URDF not found in any expected location")
     
     # Launch arguments
     declare_enable_debug = DeclareLaunchArgument(
@@ -68,39 +88,38 @@ def generate_launch_description():
                       ':'.join([gz_resource_path, gz_models_path])
     }
     
-    # Launch Gazebo (ensure it's installed and accessible)
+    # Launch Gazebo
     gazebo_launch = ExecuteProcess(
         cmd=[
             'gz', 'sim', '-r', '-v', '4', world_path
         ],
         output='screen',
         additional_env=gz_env,
-        shell=False,
-        on_exit=lambda event, context: print("Gazebo exited!")
+        shell=False
     )
     
     # ====================================================================
     # 2. ROBOT STATE PUBLISHER
     # ====================================================================
     
+    # Read URDF file
+    with open(urdf_path, 'r') as urdf_file:
+        robot_description = urdf_file.read()
+    
     robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
         parameters=[{
-            'robot_description': launch_ros.descriptions.ParameterValue(
-                launch.substitutions.Command(['xacro ', default_model_path]),
-                value_type=str
-            ),
+            'robot_description': robot_description,
             'use_sim_time': True
-        }]
+        }],
+        output='screen'
     )
     
     # ====================================================================
     # 3. SPAWN ROBOT AT STARTING ZONE (DELAYED)
     # ====================================================================
     
-    # CRITICAL FIX: Spawn at starting zone for qualification task
-    # Starting zone is at X=-14.3 (near the starting wall)
     spawn_entity = Node(
         package="ros_gz_sim",
         executable="create",
@@ -110,7 +129,7 @@ def generate_launch_description():
             "-topic", "robot_description",
             "-x", "-14.3",  # Starting zone X position
             "-y", "0.0",    # Centered
-            "-z", "-0.5",   # Just below surface (shallow depth)
+            "-z", "-0.5",   # Just below surface
             "--ros-args",
             "--log-level", "info",
         ],
@@ -119,7 +138,7 @@ def generate_launch_description():
     
     # Delay spawn to ensure Gazebo is ready
     delayed_spawn = TimerAction(
-        period=3.0,  # Wait 3 seconds for Gazebo to initialize
+        period=5.0,  # Wait 5 seconds for Gazebo to initialize
         actions=[spawn_entity]
     )
     
@@ -167,7 +186,7 @@ def generate_launch_description():
     # ====================================================================
     
     qual_gate_navigator = TimerAction(
-        period=5.0,  # Start after robot is spawned and stable
+        period=8.0,  # Start after robot is spawned and stable
         actions=[
             Node(
                 package='auv_slam',
@@ -195,26 +214,27 @@ def generate_launch_description():
             'max_roll': 0.785,
             'max_pitch': 0.785,
             'watchdog_timeout': 5.0,
-            'max_mission_time': 600.0,  # 10 minutes for qualification
+            'max_mission_time': 600.0,
             'pool_bounds_x': [-15.0, 15.0],
             'pool_bounds_y': [-7.5, 7.5]
         }]
     )
     
     # ====================================================================
-    # 9. DEBUG VISUALIZATION (Optional)
+    # 9. DEBUG VISUALIZATION (Optional - commented out if rqt not installed)
     # ====================================================================
     
-    rqt_image_view = TimerAction(
-        period=6.0,
-        actions=[
-            ExecuteProcess(
-                cmd=['rqt_image_view', '/qual_gate/debug_image'],
-                output='screen',
-                shell=False
-            )
-        ]
-    )
+    # Uncomment if you have rqt_image_view installed
+    # rqt_image_view = TimerAction(
+    #     period=10.0,
+    #     actions=[
+    #         ExecuteProcess(
+    #             cmd=['ros2', 'run', 'rqt_image_view', 'rqt_image_view', '--topic', '/qual_gate/debug_image'],
+    #             output='screen',
+    #             shell=False
+    #         )
+    #     ]
+    # )
     
     # ====================================================================
     # LAUNCH DESCRIPTION
@@ -240,15 +260,15 @@ def generate_launch_description():
         declare_enable_debug,
         
         # Core components (in order)
-        gazebo_launch,              # 1. Start Gazebo with qualification world
-        robot_state_publisher,      # 2. Publish robot description
-        bridge,                     # 3. Bridge Gazebo and ROS
-        delayed_spawn,              # 4. Spawn robot (delayed for stability)
-        thruster_mapper,            # 5. Thruster control
-        qual_gate_detector,         # 6. Gate detection
-        qual_gate_navigator,        # 7. Navigation (delayed)
-        safety_monitor,             # 8. Safety monitoring
-        rqt_image_view,            # 9. Debug view (delayed)
+        gazebo_launch,     
+        robot_state_publisher,   
+        bridge,             
+        delayed_spawn,    
+        thruster_mapper,  
+        qual_gate_detector, 
+        qual_gate_navigator, 
+        safety_monitor,     
+    #    rqt_image_view
     ])
 
 

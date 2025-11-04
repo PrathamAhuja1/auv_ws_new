@@ -353,10 +353,5 @@
     </model>
 
 
-    <include>
-      <uri>model://orca4_ign</uri>
-      <pose>-14.3 0 -0.8 0 0 0</pose>
-    </include>
-
   </world>
 </sdf>
