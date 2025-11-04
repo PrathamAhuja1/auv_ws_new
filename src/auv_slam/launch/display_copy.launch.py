@@ -39,7 +39,7 @@ def generate_launch_description():
 
     # Correct the default_model_path to point to the *installed* URDF
     # CMakeLists.txt installs it to: share/auv_slam/urdf/
-    default_model_path = os.path.join(pkg_share_sub, 'urdf/orca4_description.urdf')
+    default_model_path = os.path.join(pkg_share_sub, 'src/description/orca4_description.urdf')
     
     default_rviz_config_path = os.path.join(pkg_share_sub, 'rviz/urdf_config.rviz')
     world_path = os.path.join(pkg_share_sub, "worlds/qualification_world.sdf")
@@ -121,7 +121,7 @@ def generate_launch_description():
             "-topic",
             "robot_description",
             "-z",
-            "2.5",
+            "-1.0",  # <-- This will spawn the bot 1 meter below the surface
             "-x",
             "-4.0",
             "--ros-args",
