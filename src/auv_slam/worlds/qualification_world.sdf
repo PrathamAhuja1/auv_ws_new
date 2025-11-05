@@ -51,12 +51,11 @@
       </attenuation>
     </light>
 
-    <!-- Qualification Pool Section -->
+    <!-- Pool -->
     <model name="pool">
       <static>true</static>
       <link name="pool_link">
         
-        <!-- Floor -->
         <collision name="floor_collision">
           <pose>0 0 -3.0 0 0 0</pose>
           <geometry>
@@ -75,11 +74,9 @@
           <material>
             <ambient>0.2 0.4 0.6 1</ambient>
             <diffuse>0.2 0.4 0.6 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
           </material>
         </visual>
 
-        <!-- Wall 1 (Back) -->
         <collision name="wall1_collision">
           <pose>0 7.55 -1.5 0 0 0</pose>
           <geometry>
@@ -98,11 +95,9 @@
           <material>
             <ambient>0.3 0.5 0.7 0.8</ambient>
             <diffuse>0.3 0.5 0.7 0.8</diffuse>
-            <specular>0.2 0.2 0.2 1</specular>
           </material>
         </visual>
 
-        <!-- Wall 2 (Front) -->
         <collision name="wall2_collision">
           <pose>0 -7.55 -1.5 0 0 0</pose>
           <geometry>
@@ -121,11 +116,9 @@
           <material>
             <ambient>0.3 0.5 0.7 0.8</ambient>
             <diffuse>0.3 0.5 0.7 0.8</diffuse>
-            <specular>0.2 0.2 0.2 1</specular>
           </material>
         </visual>
 
-        <!-- Wall 3 (Right) -->
         <collision name="wall3_collision">
           <pose>15.05 0 -1.5 0 0 0</pose>
           <geometry>
@@ -144,11 +137,9 @@
           <material>
             <ambient>0.3 0.5 0.7 0.8</ambient>
             <diffuse>0.3 0.5 0.7 0.8</diffuse>
-            <specular>0.2 0.2 0.2 1</specular>
           </material>
         </visual>
 
-        <!-- Wall 4 (Left - Starting Wall) -->
         <collision name="wall4_collision">
           <pose>-15.05 0 -1.5 0 0 0</pose>
           <geometry>
@@ -167,11 +158,9 @@
           <material>
             <ambient>0.3 0.5 0.7 0.8</ambient>
             <diffuse>0.3 0.5 0.7 0.8</diffuse>
-            <specular>0.2 0.2 0.2 1</specular>
           </material>
         </visual>
 
-        <!-- Water Surface -->
         <visual name="water_surface">
           <pose>0 0 0 0 0 0</pose>
           <geometry>
@@ -182,14 +171,13 @@
           <material>
             <ambient>0.3 0.5 0.7 0.3</ambient>
             <diffuse>0.3 0.5 0.7 0.3</diffuse>
-            <specular>0.5 0.5 0.5 0.3</specular>
           </material>
         </visual>
 
       </link>
     </model>
 
-    <!-- Starting Zone - 140cm x 140cm at wall (per rulebook) -->
+    <!-- Starting Zone -->
     <model name="starting_zone">
       <static>true</static>
       <pose>-14.3 0 0.01 0 0 0</pose>
@@ -203,20 +191,18 @@
           <material>
             <ambient>1 1 0 0.9</ambient>
             <diffuse>1 1 0 0.9</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
             <emissive>0.8 0.8 0 1</emissive>
           </material>
         </visual>
       </link>
     </model>
 
-    <!-- Qualification Gate - 150cm wide x 100cm deep, ORANGE marked (per rulebook) -->
+    <!-- Qualification Gate -->
     <model name="qualification_gate">
       <static>true</static>
       <pose>-4.0 0 -0.5 0 0 0</pose>
       <link name="gate_link">
         
-        <!-- Left Post (ORANGE) -->
         <collision name="left_post_collision">
           <pose>0 -0.75 0 0 0 0</pose>
           <geometry>
@@ -235,12 +221,10 @@
           <material>
             <ambient>1.0 0.5 0.0 1</ambient>
             <diffuse>1.0 0.5 0.0 1</diffuse>
-            <specular>0.8 0.4 0.0 1</specular>
             <emissive>0.9 0.4 0.0 1</emissive>
           </material>
         </visual>
 
-        <!-- Right Post (ORANGE) -->
         <collision name="right_post_collision">
           <pose>0 0.75 0 0 0 0</pose>
           <geometry>
@@ -259,12 +243,10 @@
           <material>
             <ambient>1.0 0.5 0.0 1</ambient>
             <diffuse>1.0 0.5 0.0 1</diffuse>
-            <specular>0.8 0.4 0.0 1</specular>
             <emissive>0.9 0.4 0.0 1</emissive>
           </material>
         </visual>
 
-        <!-- Top Bar (ORANGE) -->
         <collision name="top_bar_collision">
           <pose>0 0 0.5 0 0 0</pose>
           <geometry>
@@ -283,75 +265,18 @@
           <material>
             <ambient>1.0 0.5 0.0 1</ambient>
             <diffuse>1.0 0.5 0.0 1</diffuse>
-            <specular>0.8 0.4 0.0 1</specular>
             <emissive>0.9 0.4 0.0 1</emissive>
-          </material>
-        </visual>
-
-        <!-- Additional orange markers on posts for better visibility -->
-        <visual name="left_marker_1">
-          <pose>0 -0.75 -0.25 0 0 0</pose>
-          <geometry>
-            <box>
-              <size>0.18 0.18 0.2</size>
-            </box>
-          </geometry>
-          <material>
-            <ambient>1.0 0.6 0.0 1</ambient>
-            <diffuse>1.0 0.6 0.0 1</diffuse>
-            <specular>0.9 0.5 0.0 1</specular>
-            <emissive>1.0 0.5 0.0 1</emissive>
-          </material>
-        </visual>
-
-        <visual name="left_marker_2">
-          <pose>0 -0.75 0.25 0 0 0</pose>
-          <geometry>
-            <box>
-              <size>0.18 0.18 0.2</size>
-            </box>
-          </geometry>
-          <material>
-            <ambient>1.0 0.6 0.0 1</ambient>
-            <diffuse>1.0 0.6 0.0 1</diffuse>
-            <specular>0.9 0.5 0.0 1</specular>
-            <emissive>1.0 0.5 0.0 1</emissive>
-          </material>
-        </visual>
-
-        <visual name="right_marker_1">
-          <pose>0 0.75 -0.25 0 0 0</pose>
-          <geometry>
-            <box>
-              <size>0.18 0.18 0.2</size>
-            </box>
-          </geometry>
-          <material>
-            <ambient>1.0 0.6 0.0 1</ambient>
-            <diffuse>1.0 0.6 0.0 1</diffuse>
-            <specular>0.9 0.5 0.0 1</specular>
-            <emissive>1.0 0.5 0.0 1</emissive>
-          </material>
-        </visual>
-
-        <visual name="right_marker_2">
-          <pose>0 0.75 0.25 0 0 0</pose>
-          <geometry>
-            <box>
-              <size>0.18 0.18 0.2</size>
-            </box>
-          </geometry>
-          <material>
-            <ambient>1.0 0.6 0.0 1</ambient>
-            <diffuse>1.0 0.6 0.0 1</diffuse>
-            <specular>0.9 0.5 0.0 1</specular>
-            <emissive>1.0 0.5 0.0 1</emissive>
           </material>
         </visual>
 
       </link>
     </model>
 
+    <!-- ROBOT INCLUDED IN WORLD -->
+    <include>
+      <uri>model://orca4_ign</uri>
+      <pose>-14.3 0 -0.5 0 0 0</pose>
+    </include>
 
   </world>
 </sdf>
