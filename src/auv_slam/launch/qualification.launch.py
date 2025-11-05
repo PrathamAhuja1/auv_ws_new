@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Working Qualification Launch - Uses same pattern as mission.launch.py
+Complete Qualification Launch File
+Includes robot in world file + proper bridge configuration
 """
 
 import os
@@ -13,17 +14,16 @@ from launch.substitutions import LaunchConfiguration
 def generate_launch_description():
     pkg = get_package_share_directory('auv_slam')
     
+    # Paths
     world_path = os.path.join(pkg, 'worlds/qualification_world.sdf')
     urdf_path = os.path.join(pkg, 'src/description/orca4_description.urdf')
-    bridge_config = os.path.join(pkg, 'config/ign_bridge.yaml')
     thruster_params = os.path.join(pkg, 'config/thruster_params.yaml')
     qual_params = os.path.join(pkg, 'config/qualification_params.yaml')
     
-    # Verify paths
-    print(f"World: {world_path} - Exists: {os.path.exists(world_path)}")
-    print(f"URDF: {urdf_path} - Exists: {os.path.exists(urdf_path)}")
+    print(f"✓ World: {world_path}")
+    print(f"✓ URDF: {urdf_path}")
     
-    # Gazebo environment (SAME AS MISSION.LAUNCH.PY)
+    # Gazebo environment
     models_path = os.path.join(pkg, "models")
     gz_resource = os.environ.get("GZ_SIM_RESOURCE_PATH", "")
     
@@ -38,15 +38,14 @@ def generate_launch_description():
     }
     
     use_sim_time = LaunchConfiguration("use_sim_time")
-    log_level = LaunchConfiguration("log_level")
     
-    # Robot description (from file, not installed)
+    # Robot description
     with open(urdf_path, 'r') as f:
         robot_desc = f.read()
     
     # 1. Gazebo
     gazebo = ExecuteProcess(
-        cmd=['gz', 'sim', '-r', '-v', '4', world_path],
+        cmd=['gz', 'sim', '-r', '-v', '3', world_path],
         output='screen',
         additional_env=gz_env
     )
@@ -62,34 +61,35 @@ def generate_launch_description():
         output='screen'
     )
     
-    # 3. Bridge
+    # 3. Bridge with complete thruster mapping
     bridge = Node(
         package="ros_gz_bridge",
         executable="parameter_bridge",
-        arguments=['--ros-args', '-p', f'config_file:={bridge_config}'],
+        arguments=[
+            '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
+            '/model/orca4_ign/odometry@nav_msgs/msg/Odometry[gz.msgs.Odometry',
+            '/camera_forward/image_raw@sensor_msgs/msg/Image[gz.msgs.Image',
+            '/camera_forward/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
+            '/model/orca4_ign/joint/thruster1_joint/cmd_pos@std_msgs/msg/Float64]gz.msgs.Double',
+            '/model/orca4_ign/joint/thruster2_joint/cmd_pos@std_msgs/msg/Float64]gz.msgs.Double',
+            '/model/orca4_ign/joint/thruster3_joint/cmd_pos@std_msgs/msg/Float64]gz.msgs.Double',
+            '/model/orca4_ign/joint/thruster4_joint/cmd_pos@std_msgs/msg/Float64]gz.msgs.Double',
+            '/model/orca4_ign/joint/thruster5_joint/cmd_pos@std_msgs/msg/Float64]gz.msgs.Double',
+            '/model/orca4_ign/joint/thruster6_joint/cmd_pos@std_msgs/msg/Float64]gz.msgs.Double',
+            '--ros-args',
+            '-r', '/model/orca4_ign/odometry:=/ground_truth/odom',
+            '-r', '/model/orca4_ign/joint/thruster1_joint/cmd_pos:=/thruster1_cmd',
+            '-r', '/model/orca4_ign/joint/thruster2_joint/cmd_pos:=/thruster2_cmd',
+            '-r', '/model/orca4_ign/joint/thruster3_joint/cmd_pos:=/thruster3_cmd',
+            '-r', '/model/orca4_ign/joint/thruster4_joint/cmd_pos:=/thruster4_cmd',
+            '-r', '/model/orca4_ign/joint/thruster5_joint/cmd_pos:=/thruster5_cmd',
+            '-r', '/model/orca4_ign/joint/thruster6_joint/cmd_pos:=/thruster6_cmd'
+        ],
         output="screen",
         parameters=[{"use_sim_time": use_sim_time}]
     )
     
-    # 4. Spawn - Ensure robot_description exists first
-    spawn = Node(
-        package="ros_gz_sim",
-        executable="create",
-        output="screen",
-        arguments=[
-            "-name", "orca4_ign",
-            "-topic", "robot_description",
-            "-x", "-14.3",
-            "-y", "0.0", 
-            "-z", "-0.5",
-        ],
-        parameters=[{"use_sim_time": True}],
-    )
-    
-    # Wait for robot_state_publisher + Gazebo to be ready
-    delayed_spawn = TimerAction(period=10.0, actions=[spawn])
-    
-    # 5. Thruster Mapper
+    # 4. Thruster Mapper
     thruster = Node(
         package='auv_slam',
         executable='simple_thruster_mapper.py',
@@ -98,7 +98,7 @@ def generate_launch_description():
         parameters=[thruster_params, {"use_sim_time": use_sim_time}]
     )
     
-    # 6. Gate Detector
+    # 5. Gate Detector
     detector = Node(
         package='auv_slam',
         executable='qualification_gate_detector_node.py',
@@ -107,7 +107,7 @@ def generate_launch_description():
         parameters=[qual_params, {"use_sim_time": use_sim_time}]
     )
     
-    # 7. Navigator
+    # 6. Navigator (delayed 10s)
     navigator = TimerAction(
         period=10.0,
         actions=[Node(
@@ -119,7 +119,7 @@ def generate_launch_description():
         )]
     )
     
-    # 8. Safety
+    # 7. Safety Monitor
     safety = Node(
         package='auv_slam',
         executable='safety_monitor_node.py',
@@ -140,11 +140,9 @@ def generate_launch_description():
     
     return LaunchDescription([
         DeclareLaunchArgument("use_sim_time", default_value="True"),
-        DeclareLaunchArgument("log_level", default_value="info"),
         gazebo,
         rsp,
         bridge,
-        delayed_spawn,
         thruster,
         detector,
         navigator,
