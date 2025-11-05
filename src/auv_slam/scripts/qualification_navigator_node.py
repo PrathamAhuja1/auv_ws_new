@@ -1,18 +1,7 @@
 #!/usr/bin/env python3
 """
-Qualification Navigator - Complete Qualification Task
-Sequence:
-1. SEARCHING - Find gate
-2. APPROACHING - Move toward gate
-3. ALIGNING - Align with gate
-4. PASSING_FORWARD - Pass through gate (1st time)
-5. U_TURNING - Perform 180° turn
-6. RETURNING - Navigate back to gate
-7. ALIGNING_RETURN - Align for return pass
-8. PASSING_RETURN - Pass through gate (2nd time)
-9. HOMING - Return to starting position
-10. SURFACING - Surface at starting position
-11. COMPLETED - Task complete, stop
+DEBUGGED Qualification Navigator - With extensive logging
+Tests if node starts and publishes commands
 """
 
 import rclpy
@@ -24,7 +13,7 @@ import time
 import math
 
 
-class QualificationNavigator(Node):
+class QualificationNavigatorDebug(Node):
     def __init__(self):
         super().__init__('qualification_navigator')
         
@@ -43,7 +32,7 @@ class QualificationNavigator(Node):
         
         self.state = self.SEARCHING
         
-        # Parameters
+        # CRITICAL: Load parameters with DEFAULTS
         self.declare_parameter('target_depth', -1.0)
         self.declare_parameter('search_speed', 0.4)
         self.declare_parameter('approach_speed', 0.6)
@@ -55,6 +44,7 @@ class QualificationNavigator(Node):
         self.declare_parameter('home_position_x', -14.3)
         self.declare_parameter('home_position_y', 0.0)
         self.declare_parameter('home_tolerance', 0.5)
+        self.declare_parameter('use_sim_time', True)
         
         self.target_depth = self.get_parameter('target_depth').value
         self.search_speed = self.get_parameter('search_speed').value
@@ -77,7 +67,7 @@ class QualificationNavigator(Node):
         self.current_yaw = 0.0
         
         # Position tracking
-        self.gate_position_x = -4.0  # Known from world file
+        self.gate_position_x = -4.0
         self.passing_start_time = None
         self.u_turn_start_time = None
         self.state_start_time = time.time()
@@ -86,6 +76,10 @@ class QualificationNavigator(Node):
         self.mission_start_time = time.time()
         self.forward_pass_time = None
         self.return_pass_time = None
+        
+        # Debug counters
+        self.loop_count = 0
+        self.odom_count = 0
         
         # Subscriptions
         self.gate_detected_sub = self.create_subscription(
@@ -101,18 +95,23 @@ class QualificationNavigator(Node):
         self.cmd_vel_pub = self.create_publisher(Twist, '/rp2040/cmd_vel', 10)
         self.state_pub = self.create_publisher(String, '/qual/navigation_state', 10)
         
-        # Control timer
+        # Control timer - 20Hz
         self.control_timer = self.create_timer(0.05, self.control_loop)
         
+        # Status timer - 1Hz
+        self.status_timer = self.create_timer(1.0, self.print_status)
+        
         self.get_logger().info('='*70)
-        self.get_logger().info('✅ Qualification Navigator Started')
+        self.get_logger().info('✅ QUALIFICATION NAVIGATOR STARTED (DEBUG MODE)')
         self.get_logger().info('='*70)
-        self.get_logger().info('   Sequence: SEARCH → APPROACH → ALIGN → PASS_FWD →')
-        self.get_logger().info('             U_TURN → RETURN → ALIGN → PASS_RTN →')
-        self.get_logger().info('             HOME → SURFACE → COMPLETE')
+        self.get_logger().info(f'   Target depth: {self.target_depth}m')
+        self.get_logger().info(f'   Search speed: {self.search_speed}m/s')
+        self.get_logger().info(f'   Gate at X={self.gate_position_x}m')
         self.get_logger().info('='*70)
     
     def gate_detected_callback(self, msg: Bool):
+        if msg.data != self.gate_detected:
+            self.get_logger().info(f'🎯 Gate detection changed: {msg.data}')
         self.gate_detected = msg.data
     
     def alignment_callback(self, msg: Float32):
@@ -122,6 +121,7 @@ class QualificationNavigator(Node):
         self.estimated_distance = msg.data
     
     def odom_callback(self, msg: Odometry):
+        self.odom_count += 1
         self.current_depth = msg.pose.pose.position.z
         self.current_position = (
             msg.pose.pose.position.x,
@@ -129,14 +129,31 @@ class QualificationNavigator(Node):
             msg.pose.pose.position.z
         )
         
-        # Extract yaw from quaternion
+        # Extract yaw
         q = msg.pose.pose.orientation
         siny_cosp = 2 * (q.w * q.z + q.x * q.y)
         cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
         self.current_yaw = math.atan2(siny_cosp, cosy_cosp)
+        
+        # Debug first odom
+        if self.odom_count == 1:
+            self.get_logger().info(f'✓ First odom received: X={self.current_position[0]:.2f}, Y={self.current_position[1]:.2f}, Z={self.current_position[2]:.2f}')
     
     def control_loop(self):
+        self.loop_count += 1
+        
+        # Create command
         cmd = Twist()
+        
+        # ALWAYS log every 20 loops (once per second at 20Hz)
+        if self.loop_count % 20 == 0:
+            self.get_logger().info(f'🔄 Control loop #{self.loop_count}: State={self.get_state_name()}')
+        
+        # Wait for odom
+        if self.current_position is None:
+            if self.loop_count % 100 == 0:
+                self.get_logger().warn('⏳ Waiting for odometry...')
+            return
         
         # Depth control
         depth_error = self.target_depth - self.current_depth
@@ -170,12 +187,36 @@ class QualificationNavigator(Node):
         elif self.state == self.COMPLETED:
             cmd = self.completed_behavior(cmd)
         
+        # ALWAYS PUBLISH
         self.cmd_vel_pub.publish(cmd)
         
         # Publish state
         state_msg = String()
         state_msg.data = self.get_state_name()
         self.state_pub.publish(state_msg)
+        
+        # Debug output every second
+        if self.loop_count % 20 == 0:
+            self.get_logger().info(
+                f'   CMD: vx={cmd.linear.x:.2f}, vy={cmd.linear.y:.2f}, '
+                f'vz={cmd.linear.z:.2f}, yaw={cmd.angular.z:.2f}'
+            )
+    
+    def print_status(self):
+        """Print detailed status every second"""
+        self.get_logger().info('─'*70)
+        self.get_logger().info(f'📊 STATUS UPDATE')
+        self.get_logger().info(f'   Loop count: {self.loop_count}')
+        self.get_logger().info(f'   Odom count: {self.odom_count}')
+        self.get_logger().info(f'   State: {self.get_state_name()}')
+        if self.current_position:
+            self.get_logger().info(
+                f'   Position: X={self.current_position[0]:.2f}, '
+                f'Y={self.current_position[1]:.2f}, Z={self.current_position[2]:.2f}'
+            )
+            self.get_logger().info(f'   Yaw: {math.degrees(self.current_yaw):.1f}°')
+        self.get_logger().info(f'   Gate detected: {self.gate_detected}')
+        self.get_logger().info('─'*70)
     
     def searching_behavior(self, cmd: Twist) -> Twist:
         """Search for gate with rotation"""
@@ -185,12 +226,8 @@ class QualificationNavigator(Node):
             return cmd
         
         # Rotate to search
-        cmd.linear.x = 0.2
+        cmd.linear.x = self.search_speed
         cmd.angular.z = 0.3
-        
-        elapsed = time.time() - self.state_start_time
-        if int(elapsed) % 2 == 0:
-            self.get_logger().info(f'🔍 Searching... {elapsed:.0f}s', throttle_duration_sec=1.9)
         
         return cmd
     
@@ -207,11 +244,6 @@ class QualificationNavigator(Node):
         
         cmd.linear.x = self.approach_speed
         cmd.angular.z = -self.alignment_error * 1.5
-        
-        self.get_logger().info(
-            f'🚶 APPROACHING: dist={self.estimated_distance:.1f}m, align={self.alignment_error:+.2f}',
-            throttle_duration_sec=0.5
-        )
         
         return cmd
     
@@ -232,11 +264,6 @@ class QualificationNavigator(Node):
         cmd.linear.x = 0.3
         cmd.angular.z = -self.alignment_error * 2.5
         
-        self.get_logger().info(
-            f'🎯 ALIGNING: error={self.alignment_error:+.3f}',
-            throttle_duration_sec=0.3
-        )
-        
         return cmd
     
     def passing_forward_behavior(self, cmd: Twist) -> Twist:
@@ -249,7 +276,6 @@ class QualificationNavigator(Node):
                 self.get_logger().info('='*70)
                 self.get_logger().info('✅ FORWARD PASS COMPLETE!')
                 self.get_logger().info(f'   Time: {elapsed:.2f}s')
-                self.get_logger().info('   Starting U-turn...')
                 self.get_logger().info('='*70)
                 
                 self.u_turn_start_time = time.time()
@@ -258,8 +284,6 @@ class QualificationNavigator(Node):
         
         cmd.linear.x = self.passing_speed
         cmd.angular.z = 0.0
-        
-        self.get_logger().info('🚀 PASSING FORWARD...', throttle_duration_sec=0.5)
         
         return cmd
     
@@ -272,15 +296,8 @@ class QualificationNavigator(Node):
             self.transition_to(self.RETURNING)
             return cmd
         
-        # Execute turn
         cmd.linear.x = 0.2
-        cmd.angular.z = -0.8  # Turn right
-        
-        progress = (elapsed / self.u_turn_duration) * 100
-        self.get_logger().info(
-            f'🔄 U-TURNING: {progress:.0f}% ({elapsed:.1f}s/{self.u_turn_duration:.1f}s)',
-            throttle_duration_sec=0.5
-        )
+        cmd.angular.z = -0.8
         
         return cmd
     
@@ -296,13 +313,8 @@ class QualificationNavigator(Node):
         
         if self.gate_detected:
             cmd.angular.z = -self.alignment_error * 1.5
-            self.get_logger().info(
-                f'↩️ RETURNING: dist={self.estimated_distance:.1f}m',
-                throttle_duration_sec=0.5
-            )
         else:
-            cmd.angular.z = 0.2  # Gentle search
-            self.get_logger().info('↩️ RETURNING (searching gate)...', throttle_duration_sec=1.0)
+            cmd.angular.z = 0.2
         
         return cmd
     
@@ -323,11 +335,6 @@ class QualificationNavigator(Node):
         cmd.linear.x = 0.3
         cmd.angular.z = -self.alignment_error * 2.5
         
-        self.get_logger().info(
-            f'🎯 ALIGNING RETURN: error={self.alignment_error:+.3f}',
-            throttle_duration_sec=0.3
-        )
-        
         return cmd
     
     def passing_return_behavior(self, cmd: Twist) -> Twist:
@@ -340,8 +347,6 @@ class QualificationNavigator(Node):
                 self.get_logger().info('='*70)
                 self.get_logger().info('✅ RETURN PASS COMPLETE!')
                 self.get_logger().info(f'   Total time: {elapsed:.2f}s')
-                self.get_logger().info('   Qualification points: 2 ✓')
-                self.get_logger().info('   Returning home...')
                 self.get_logger().info('='*70)
                 
                 self.transition_to(self.HOMING)
@@ -349,8 +354,6 @@ class QualificationNavigator(Node):
         
         cmd.linear.x = self.passing_speed
         cmd.angular.z = 0.0
-        
-        self.get_logger().info('🚀 PASSING RETURN...', throttle_duration_sec=0.5)
         
         return cmd
     
@@ -360,7 +363,6 @@ class QualificationNavigator(Node):
             cmd.linear.x = 0.0
             return cmd
         
-        # Calculate distance to home
         dx = self.home_x - self.current_position[0]
         dy = self.home_y - self.current_position[1]
         distance_to_home = math.sqrt(dx*dx + dy*dy)
@@ -370,11 +372,9 @@ class QualificationNavigator(Node):
             self.transition_to(self.SURFACING)
             return cmd
         
-        # Calculate heading to home
         target_yaw = math.atan2(dy, dx)
         yaw_error = target_yaw - self.current_yaw
         
-        # Normalize yaw error to [-pi, pi]
         while yaw_error > math.pi:
             yaw_error -= 2 * math.pi
         while yaw_error < -math.pi:
@@ -382,11 +382,6 @@ class QualificationNavigator(Node):
         
         cmd.linear.x = 0.6
         cmd.angular.z = yaw_error * 1.0
-        
-        self.get_logger().info(
-            f'🏠 HOMING: dist={distance_to_home:.1f}m, heading={math.degrees(target_yaw):.0f}°',
-            throttle_duration_sec=0.5
-        )
         
         return cmd
     
@@ -399,13 +394,8 @@ class QualificationNavigator(Node):
         
         cmd.linear.x = 0.0
         cmd.linear.y = 0.0
-        cmd.linear.z = 1.0  # Ascend
+        cmd.linear.z = 1.0
         cmd.angular.z = 0.0
-        
-        self.get_logger().info(
-            f'⬆️ SURFACING: depth={self.current_depth:.2f}m',
-            throttle_duration_sec=0.5
-        )
         
         return cmd
     
@@ -415,17 +405,8 @@ class QualificationNavigator(Node):
             total_time = time.time() - self.mission_start_time
             
             self.get_logger().info('='*70)
-            self.get_logger().info('🎉 QUALIFICATION TASK COMPLETE!')
-            self.get_logger().info('='*70)
-            self.get_logger().info(f'   Total mission time: {total_time:.2f}s')
-            if self.forward_pass_time:
-                fwd_time = self.forward_pass_time - self.mission_start_time
-                self.get_logger().info(f'   Forward pass: {fwd_time:.2f}s')
-            if self.return_pass_time:
-                rtn_time = self.return_pass_time - self.forward_pass_time
-                self.get_logger().info(f'   Return pass: {rtn_time:.2f}s')
-            self.get_logger().info('   Qualification points: 2/2 ✓')
-            self.get_logger().info('   Status: QUALIFIED FOR FINAL ROUND')
+            self.get_logger().info('🎉 QUALIFICATION COMPLETE!')
+            self.get_logger().info(f'   Total time: {total_time:.2f}s')
             self.get_logger().info('='*70)
             
             self.mission_start_time = None
@@ -466,7 +447,8 @@ class QualificationNavigator(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = QualificationNavigator()
+    node = QualificationNavigatorDebug()
+    
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

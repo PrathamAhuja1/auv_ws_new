@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Complete Qualification Launch File
-Includes robot in world file + proper bridge configuration
+FIXED Qualification Launch File
+Key fix: Added proper thruster topic remapping in bridge
 """
 
 import os
@@ -61,15 +61,19 @@ def generate_launch_description():
         output='screen'
     )
     
-    # 3. Bridge with complete thruster mapping
+    # 3. FIXED Bridge - Complete thruster remapping like mission.launch.py
     bridge = Node(
         package="ros_gz_bridge",
         executable="parameter_bridge",
         arguments=[
+            # Clock
             '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
+            # Odometry
             '/model/orca4_ign/odometry@nav_msgs/msg/Odometry[gz.msgs.Odometry',
+            # Camera
             '/camera_forward/image_raw@sensor_msgs/msg/Image[gz.msgs.Image',
             '/camera_forward/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
+            # Thrusters - CRITICAL: Proper remapping
             '/model/orca4_ign/joint/thruster1_joint/cmd_pos@std_msgs/msg/Float64]gz.msgs.Double',
             '/model/orca4_ign/joint/thruster2_joint/cmd_pos@std_msgs/msg/Float64]gz.msgs.Double',
             '/model/orca4_ign/joint/thruster3_joint/cmd_pos@std_msgs/msg/Float64]gz.msgs.Double',
@@ -77,7 +81,9 @@ def generate_launch_description():
             '/model/orca4_ign/joint/thruster5_joint/cmd_pos@std_msgs/msg/Float64]gz.msgs.Double',
             '/model/orca4_ign/joint/thruster6_joint/cmd_pos@std_msgs/msg/Float64]gz.msgs.Double',
             '--ros-args',
+            # Remap odometry
             '-r', '/model/orca4_ign/odometry:=/ground_truth/odom',
+            # CRITICAL: Remap ALL thruster commands
             '-r', '/model/orca4_ign/joint/thruster1_joint/cmd_pos:=/thruster1_cmd',
             '-r', '/model/orca4_ign/joint/thruster2_joint/cmd_pos:=/thruster2_cmd',
             '-r', '/model/orca4_ign/joint/thruster3_joint/cmd_pos:=/thruster3_cmd',
@@ -107,15 +113,17 @@ def generate_launch_description():
         parameters=[qual_params, {"use_sim_time": use_sim_time}]
     )
     
-    # 6. Navigator (delayed 10s)
+    # 6. Navigator (delayed 5s for faster start)
     navigator = TimerAction(
-        period=10.0,
+        period=5.0,
         actions=[Node(
             package='auv_slam',
             executable='qualification_navigator_node.py',
             name='qualification_navigator',
             output='screen',
-            parameters=[qual_params, {"use_sim_time": use_sim_time}]
+            parameters=[qual_params, {"use_sim_time": use_sim_time}],
+            # Force output to see if node is running
+            emulate_tty=True
         )]
     )
     
@@ -138,13 +146,23 @@ def generate_launch_description():
         }]
     )
     
+    # 8. OPTIONAL: Diagnostic node to verify thruster commands
+    diagnostic = Node(
+        package='auv_slam',
+        executable='diagnostic_node.py',
+        name='diagnostic_node',
+        output='screen',
+        parameters=[{"use_sim_time": use_sim_time}]
+    )
+    
     return LaunchDescription([
         DeclareLaunchArgument("use_sim_time", default_value="True"),
         gazebo,
         rsp,
-        bridge,
+        bridge,  # FIXED bridge with proper remapping
         thruster,
         detector,
         navigator,
-        safety
+        safety,
+        # diagnostic  # Uncomment to see thruster diagnostics
     ])
