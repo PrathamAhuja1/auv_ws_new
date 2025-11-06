@@ -1,239 +1,274 @@
 #!/usr/bin/env python3
 """
-Interactive HSV Color Tuner for Gate Detection
-Use this to find the perfect HSV ranges for your Gazebo environment
+DEEP DIAGNOSTIC - Find EXACTLY why thrusters aren't working
+Run this AFTER launching qualification.launch.py
 
 Usage:
-    ros2 run auv_slam hsv_tuner.py
-    
-Then use trackbars to adjust HSV ranges and see results in real-time
+    ros2 run auv_slam deep_diagnostic.py
 """
 
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import Image
-from cv_bridge import CvBridge
-import cv2
-import numpy as np
+from std_msgs.msg import Float64
+from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
+import time
 
 
-class HSVTuner(Node):
+class DeepDiagnostic(Node):
     def __init__(self):
-        super().__init__('hsv_tuner')
-        self.bridge = CvBridge()
-        self.current_image = None
+        super().__init__('deep_diagnostic')
         
-        # Subscribe to camera
-        self.image_sub = self.create_subscription(
-            Image,
-            '/camera_forward/image_raw',
-            self.image_callback,
-            10
-        )
+        # Tracking
+        self.cmd_vel_received = False
+        self.odom_received = False
+        self.thruster_cmds_received = [False] * 6
+        self.last_cmd_vel = None
+        self.last_odom = None
+        self.last_thruster_values = [0.0] * 6
         
-        # Create windows
-        cv2.namedWindow('Original')
-        cv2.namedWindow('HSV Tuning')
-        cv2.namedWindow('Red Mask')
-        cv2.namedWindow('Green Mask')
+        self.odom_history = []
         
-        # Initial HSV ranges (permissive defaults)
-        self.create_trackbars()
+        # Subscribe to everything
+        self.cmd_vel_sub = self.create_subscription(
+            Twist, '/rp2040/cmd_vel', self.cmd_vel_callback, 10)
+        
+        self.odom_sub = self.create_subscription(
+            Odometry, '/ground_truth/odom', self.odom_callback, 10)
+        
+        # Monitor ALL possible thruster topics
+        self.thruster_subs = []
+        for i in range(1, 7):
+            # Subscribe to our expected topic
+            self.create_subscription(
+                Float64, f'/thruster{i}_cmd', 
+                lambda msg, idx=i-1: self.thruster_callback(msg, idx, 'thruster_cmd'), 10)
+            
+            # Subscribe to Gazebo topics (in case remapping failed)
+            self.create_subscription(
+                Float64, f'/model/orca4_ign/joint/thruster{i}_joint/cmd_pos',
+                lambda msg, idx=i-1: self.thruster_callback(msg, idx, 'gazebo_direct'), 10)
+        
+        # Publishers for manual testing
+        self.thruster_pubs = []
+        for i in range(1, 7):
+            pub = self.create_publisher(Float64, f'/thruster{i}_cmd', 10)
+            self.thruster_pubs.append(pub)
         
         self.get_logger().info('='*70)
-        self.get_logger().info('🎨 HSV Color Tuner Started')
-        self.get_logger().info('   Adjust trackbars to find perfect HSV ranges')
-        self.get_logger().info('   Press Q to quit')
+        self.get_logger().info('🔍 DEEP DIAGNOSTIC STARTED')
         self.get_logger().info('='*70)
+        self.get_logger().info('Monitoring all topics for 10 seconds...')
         
-        # Processing timer
-        self.timer = self.create_timer(0.1, self.process_image)
-    
-    def create_trackbars(self):
-        """Create trackbars for HSV adjustment"""
-        # Red channel (low H)
-        cv2.createTrackbar('R1_H_min', 'HSV Tuning', 0, 180, lambda x: None)
-        cv2.createTrackbar('R1_H_max', 'HSV Tuning', 30, 180, lambda x: None)
-        cv2.createTrackbar('R1_S_min', 'HSV Tuning', 15, 255, lambda x: None)
-        cv2.createTrackbar('R1_V_min', 'HSV Tuning', 30, 255, lambda x: None)
+        # Phase 1: Passive monitoring
+        self.phase = 1
+        self.phase_start = time.time()
+        self.timer = self.create_timer(0.5, self.diagnostic_loop)
         
-        # Red channel (high H)
-        cv2.createTrackbar('R2_H_min', 'HSV Tuning', 140, 180, lambda x: None)
-        cv2.createTrackbar('R2_H_max', 'HSV Tuning', 180, 180, lambda x: None)
+    def cmd_vel_callback(self, msg: Twist):
+        self.cmd_vel_received = True
+        self.last_cmd_vel = msg
         
-        # Green channel
-        cv2.createTrackbar('G_H_min', 'HSV Tuning', 20, 180, lambda x: None)
-        cv2.createTrackbar('G_H_max', 'HSV Tuning', 120, 180, lambda x: None)
-        cv2.createTrackbar('G_S_min', 'HSV Tuning', 10, 255, lambda x: None)
-        cv2.createTrackbar('G_V_min', 'HSV Tuning', 25, 255, lambda x: None)
+    def odom_callback(self, msg: Odometry):
+        self.odom_received = True
+        self.last_odom = msg
+        self.odom_history.append((
+            time.time(),
+            msg.pose.pose.position.x,
+            msg.pose.pose.position.y,
+            msg.pose.pose.position.z
+        ))
         
-        # Morphology
-        cv2.createTrackbar('Morph_kernel', 'HSV Tuning', 3, 15, lambda x: None)
+    def thruster_callback(self, msg: Float64, idx: int, source: str):
+        self.thruster_cmds_received[idx] = True
+        self.last_thruster_values[idx] = msg.data
         
-        # Min area
-        cv2.createTrackbar('Min_area', 'HSV Tuning', 15, 500, lambda x: None)
-    
-    def image_callback(self, msg):
-        try:
-            self.current_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
-        except Exception as e:
-            self.get_logger().error(f'Image conversion error: {e}')
-    
-    def process_image(self):
-        """Process image with current trackbar values"""
-        if self.current_image is None:
-            return
-        
-        # Get trackbar values
-        r1_h_min = cv2.getTrackbarPos('R1_H_min', 'HSV Tuning')
-        r1_h_max = cv2.getTrackbarPos('R1_H_max', 'HSV Tuning')
-        r1_s_min = cv2.getTrackbarPos('R1_S_min', 'HSV Tuning')
-        r1_v_min = cv2.getTrackbarPos('R1_V_min', 'HSV Tuning')
-        
-        r2_h_min = cv2.getTrackbarPos('R2_H_min', 'HSV Tuning')
-        r2_h_max = cv2.getTrackbarPos('R2_H_max', 'HSV Tuning')
-        
-        g_h_min = cv2.getTrackbarPos('G_H_min', 'HSV Tuning')
-        g_h_max = cv2.getTrackbarPos('G_H_max', 'HSV Tuning')
-        g_s_min = cv2.getTrackbarPos('G_S_min', 'HSV Tuning')
-        g_v_min = cv2.getTrackbarPos('G_V_min', 'HSV Tuning')
-        
-        morph_size = max(1, cv2.getTrackbarPos('Morph_kernel', 'HSV Tuning'))
-        min_area = cv2.getTrackbarPos('Min_area', 'HSV Tuning')
-        
-        # Convert to HSV
-        hsv = cv2.cvtColor(self.current_image, cv2.COLOR_BGR2HSV)
-        
-        # Create masks
-        red_lower1 = np.array([r1_h_min, r1_s_min, r1_v_min])
-        red_upper1 = np.array([r1_h_max, 255, 255])
-        red_lower2 = np.array([r2_h_min, r1_s_min, r1_v_min])
-        red_upper2 = np.array([r2_h_max, 255, 255])
-        
-        green_lower = np.array([g_h_min, g_s_min, g_v_min])
-        green_upper = np.array([g_h_max, 255, 255])
-        
-        red_mask1 = cv2.inRange(hsv, red_lower1, red_upper1)
-        red_mask2 = cv2.inRange(hsv, red_lower2, red_upper2)
-        red_mask = cv2.bitwise_or(red_mask1, red_mask2)
-        
-        green_mask = cv2.inRange(hsv, green_lower, green_upper)
-        
-        # Morphology
-        kernel = np.ones((morph_size, morph_size), np.uint8)
-        red_mask = cv2.morphologyEx(red_mask, cv2.MORPH_CLOSE, kernel)
-        red_mask = cv2.morphologyEx(red_mask, cv2.MORPH_OPEN, kernel)
-        green_mask = cv2.morphologyEx(green_mask, cv2.MORPH_CLOSE, kernel)
-        green_mask = cv2.morphologyEx(green_mask, cv2.MORPH_OPEN, kernel)
-        
-        # Find contours
-        red_contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        green_contours, _ = cv2.findContours(green_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        # Draw on original
-        result = self.current_image.copy()
-        
-        red_count = 0
-        for cnt in red_contours:
-            area = cv2.contourArea(cnt)
-            if area > min_area:
-                x, y, w, h = cv2.boundingRect(cnt)
-                cv2.rectangle(result, (x, y), (x+w, y+h), (0, 0, 255), 2)
-                cv2.putText(result, f"R:{int(area)}", (x, y-5),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-                red_count += 1
-        
-        green_count = 0
-        for cnt in green_contours:
-            area = cv2.contourArea(cnt)
-            if area > min_area:
-                x, y, w, h = cv2.boundingRect(cnt)
-                cv2.rectangle(result, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                cv2.putText(result, f"G:{int(area)}", (x, y-5),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                green_count += 1
-        
-        # Add stats
-        stats_text = [
-            f"Red: {cv2.countNonZero(red_mask)}px ({red_count} valid)",
-            f"Green: {cv2.countNonZero(green_mask)}px ({green_count} valid)",
-            f"Min area: {min_area}",
-        ]
-        
-        y_offset = 30
-        for text in stats_text:
-            cv2.putText(result, text, (10, y_offset),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            y_offset += 30
-        
-        # Print current ranges to console
-        if red_count > 0 or green_count > 0:
+        if abs(msg.data) > 0.1:
             self.get_logger().info(
-                f"Red[{r1_h_min}-{r1_h_max}, {r2_h_min}-{r2_h_max}] "
-                f"Green[{g_h_min}-{g_h_max}] | "
-                f"Valid: R={red_count} G={green_count}",
-                throttle_duration_sec=1.0
+                f'  💨 T{idx+1} = {msg.data:.2f} (from {source})',
+                throttle_duration_sec=0.5
             )
-        
-        # Show results
-        cv2.imshow('Original', self.current_image)
-        cv2.imshow('HSV Tuning', result)
-        cv2.imshow('Red Mask', red_mask)
-        cv2.imshow('Green Mask', green_mask)
-        
-        # Check for quit
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            self.print_final_values()
-            cv2.destroyAllWindows()
-            rclpy.shutdown()
     
-    def print_final_values(self):
-        """Print final HSV values for code"""
-        r1_h_min = cv2.getTrackbarPos('R1_H_min', 'HSV Tuning')
-        r1_h_max = cv2.getTrackbarPos('R1_H_max', 'HSV Tuning')
-        r1_s_min = cv2.getTrackbarPos('R1_S_min', 'HSV Tuning')
-        r1_v_min = cv2.getTrackbarPos('R1_V_min', 'HSV Tuning')
+    def diagnostic_loop(self):
+        elapsed = time.time() - self.phase_start
         
-        r2_h_min = cv2.getTrackbarPos('R2_H_min', 'HSV Tuning')
-        r2_h_max = cv2.getTrackbarPos('R2_H_max', 'HSV Tuning')
+        if self.phase == 1:  # Passive monitoring (10s)
+            if elapsed < 10.0:
+                if int(elapsed) % 2 == 0:
+                    self.get_logger().info(f'⏱️  Monitoring... {elapsed:.0f}s / 10s')
+                return
+            else:
+                self.print_phase1_results()
+                self.phase = 2
+                self.phase_start = time.time()
+                self.get_logger().info('')
+                self.get_logger().info('='*70)
+                self.get_logger().info('📋 PHASE 2: MANUAL THRUSTER TEST')
+                self.get_logger().info('='*70)
+                self.get_logger().info('Sending direct thruster commands...')
+                
+        elif self.phase == 2:  # Manual thruster test (5s)
+            if elapsed < 5.0:
+                # Send test commands
+                for i, pub in enumerate(self.thruster_pubs):
+                    msg = Float64()
+                    msg.data = 30.0 if i < 4 else 0.0  # Only horizontal thrusters
+                    pub.publish(msg)
+                return
+            else:
+                self.print_phase2_results()
+                self.phase = 3
+                self.phase_start = time.time()
+                
+        elif self.phase == 3:  # Stop and analyze
+            # Stop all thrusters
+            for pub in self.thruster_pubs:
+                msg = Float64()
+                msg.data = 0.0
+                pub.publish(msg)
+            
+            if elapsed < 2.0:
+                return
+            else:
+                self.print_final_diagnosis()
+                self.timer.cancel()
+    
+    def print_phase1_results(self):
+        self.get_logger().info('='*70)
+        self.get_logger().info('📊 PHASE 1 RESULTS: Passive Monitoring')
+        self.get_logger().info('='*70)
         
-        g_h_min = cv2.getTrackbarPos('G_H_min', 'HSV Tuning')
-        g_h_max = cv2.getTrackbarPos('G_H_max', 'HSV Tuning')
-        g_s_min = cv2.getTrackbarPos('G_S_min', 'HSV Tuning')
-        g_v_min = cv2.getTrackbarPos('G_V_min', 'HSV Tuning')
+        # 1. Odometry check
+        if self.odom_received:
+            self.get_logger().info('✅ Odometry: WORKING')
+            if len(self.odom_history) > 1:
+                dx = self.odom_history[-1][1] - self.odom_history[0][1]
+                dy = self.odom_history[-1][2] - self.odom_history[0][2]
+                dz = self.odom_history[-1][3] - self.odom_history[0][3]
+                movement = (dx**2 + dy**2 + dz**2)**0.5
+                self.get_logger().info(f'   Movement: {movement:.3f}m in 10s')
+                if movement < 0.1:
+                    self.get_logger().warn('   ⚠️  Robot is NOT MOVING!')
+        else:
+            self.get_logger().error('❌ Odometry: NO DATA')
         
-        min_area = cv2.getTrackbarPos('Min_area', 'HSV Tuning')
+        # 2. Cmd_vel check
+        if self.cmd_vel_received:
+            self.get_logger().info('✅ Cmd_vel: WORKING')
+            if self.last_cmd_vel:
+                self.get_logger().info(
+                    f'   Last: vx={self.last_cmd_vel.linear.x:.2f}, '
+                    f'vy={self.last_cmd_vel.linear.y:.2f}, '
+                    f'vz={self.last_cmd_vel.linear.z:.2f}, '
+                    f'yaw={self.last_cmd_vel.angular.z:.2f}'
+                )
+        else:
+            self.get_logger().error('❌ Cmd_vel: NO DATA')
+            self.get_logger().error('   → Navigator is not publishing commands!')
+        
+        # 3. Thruster commands check
+        active_thrusters = sum(self.thruster_cmds_received)
+        if active_thrusters > 0:
+            self.get_logger().info(f'✅ Thruster Commands: {active_thrusters}/6 active')
+            for i, (received, value) in enumerate(zip(self.thruster_cmds_received, self.last_thruster_values)):
+                status = '✓' if received else '✗'
+                self.get_logger().info(f'   {status} T{i+1}: {value:.2f}')
+        else:
+            self.get_logger().error('❌ Thruster Commands: NONE RECEIVED')
+            self.get_logger().error('   → Bridge or thruster mapper not working!')
+    
+    def print_phase2_results(self):
+        self.get_logger().info('='*70)
+        self.get_logger().info('📊 PHASE 2 RESULTS: Manual Thruster Test')
+        self.get_logger().info('='*70)
+        
+        if len(self.odom_history) > 10:
+            # Compare position before and after manual test
+            before = self.odom_history[-10]
+            after = self.odom_history[-1]
+            
+            dx = after[1] - before[1]
+            dy = after[2] - before[2]
+            dz = after[3] - before[3]
+            movement = (dx**2 + dy**2 + dz**2)**0.5
+            
+            self.get_logger().info(f'Movement during manual test: {movement:.3f}m')
+            
+            if movement > 0.5:
+                self.get_logger().info('✅ Manual thruster commands WORK!')
+                self.get_logger().info('   → Bridge and Gazebo physics are OK')
+                self.get_logger().info('   → Problem is in thruster_mapper or navigator')
+            else:
+                self.get_logger().error('❌ Manual thruster commands FAILED!')
+                self.get_logger().error('   → Bridge or Gazebo configuration issue')
+    
+    def print_final_diagnosis(self):
+        self.get_logger().info('='*70)
+        self.get_logger().info('🔬 FINAL DIAGNOSIS')
+        self.get_logger().info('='*70)
+        
+        # Determine the root cause
+        if not self.odom_received:
+            self.get_logger().error('❌ ROOT CAUSE: No odometry data')
+            self.get_logger().error('   FIX: Check bridge configuration for odometry topic')
+            
+        elif not self.cmd_vel_received:
+            self.get_logger().error('❌ ROOT CAUSE: Navigator not publishing cmd_vel')
+            self.get_logger().error('   FIX: Check qualification_navigator_node.py is running')
+            self.get_logger().error('        Run: ros2 node list')
+            
+        elif sum(self.thruster_cmds_received) == 0:
+            self.get_logger().error('❌ ROOT CAUSE: No thruster commands received')
+            self.get_logger().error('   FIX: Thruster mapper not working')
+            self.get_logger().error('        Check simple_thruster_mapper.py is running')
+            
+        else:
+            # Movement check
+            if len(self.odom_history) > 20:
+                total_movement = 0
+                for i in range(1, len(self.odom_history)):
+                    dx = self.odom_history[i][1] - self.odom_history[i-1][1]
+                    dy = self.odom_history[i][2] - self.odom_history[i-1][2]
+                    dz = self.odom_history[i][3] - self.odom_history[i-1][3]
+                    total_movement += (dx**2 + dy**2 + dz**2)**0.5
+                
+                if total_movement < 0.5:
+                    self.get_logger().error('❌ ROOT CAUSE: All systems working but robot not moving')
+                    self.get_logger().error('   FIX: Possible causes:')
+                    self.get_logger().error('        1. Thruster commands too weak')
+                    self.get_logger().error('        2. Robot stuck on ground/wall')
+                    self.get_logger().error('        3. Buoyancy misconfigured')
+                    self.get_logger().error('        4. Thruster allocation matrix wrong')
+                else:
+                    self.get_logger().info('✅ DIAGNOSIS: Everything working!')
+                    self.get_logger().info(f'   Total movement: {total_movement:.2f}m')
         
         self.get_logger().info('='*70)
-        self.get_logger().info('📋 FINAL HSV VALUES - Copy to gate_detector_node.py:')
+        self.get_logger().info('🔍 RECOMMENDED CHECKS:')
         self.get_logger().info('='*70)
-        print(f"""
-# RED channel
-self.red_lower1 = np.array([{r1_h_min}, {r1_s_min}, {r1_v_min}])
-self.red_upper1 = np.array([{r1_h_max}, 255, 255])
-self.red_lower2 = np.array([{r2_h_min}, {r1_s_min}, {r1_v_min}])
-self.red_upper2 = np.array([{r2_h_max}, 255, 255])
-
-# GREEN channel
-self.green_lower = np.array([{g_h_min}, {g_s_min}, {g_v_min}])
-self.green_upper = np.array([{g_h_max}, 255, 255])
-
-# Detection parameters
-self.min_area_strict = {min_area}
-""")
+        self.get_logger().info('1. Run: ros2 topic list | grep thruster')
+        self.get_logger().info('2. Run: ros2 topic echo /thruster1_cmd')
+        self.get_logger().info('3. Run: ros2 topic echo /rp2040/cmd_vel')
+        self.get_logger().info('4. Run: ros2 node list')
+        self.get_logger().info('5. Check Gazebo GUI - is robot visible and at correct position?')
         self.get_logger().info('='*70)
 
 
 def main(args=None):
     rclpy.init(args=args)
-    node = HSVTuner()
+    node = DeepDiagnostic()
     
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
-        cv2.destroyAllWindows()
+        # Stop all thrusters
+        for pub in node.thruster_pubs:
+            msg = Float64()
+            msg.data = 0.0
+            pub.publish(msg)
+        
         node.destroy_node()
         rclpy.shutdown()
 

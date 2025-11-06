@@ -164,5 +164,5 @@ def generate_launch_description():
         detector,
         navigator,
         safety,
-        # diagnostic  # Uncomment to see thruster diagnostics
+        diagnostic  # Uncomment to see thruster diagnostics
     ])
