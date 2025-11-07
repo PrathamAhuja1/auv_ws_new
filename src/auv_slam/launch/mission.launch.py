@@ -112,6 +112,7 @@ def generate_launch_description():
         gate_navigator,
         safety_monitor,
     #    diagnostic_node,
+        # Debug visualization tools (delayed start to let everything initialize)
         TimerAction(
             period=5.0,
             actions=[rqt_image_view]

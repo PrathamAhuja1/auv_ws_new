@@ -32,9 +32,6 @@ install(PROGRAMS
   scripts/safety_monitor_node.py
   scripts/diagnostic_node.py
   scripts/simple_thruster_mapper.py
-  scripts/qualification_gate_detector_node.py
-  scripts/qualification_navigator_node.py
-  scripts/simple_test_publisher.py
   DESTINATION lib/${PROJECT_NAME})
 
 

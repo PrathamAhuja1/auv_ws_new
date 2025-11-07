@@ -2,6 +2,10 @@
 <robot name="orca4_ign" xmlns:xacro="http://ros.org/wiki/xacro">
     <origin xyz="0 0 0" rpy="0 0 0"/>
 
+    <!-- BlueROV2 thruster reference: http://www.ardusub.com/introduction/features.html -->
+    <!-- fluid_density: 1000 -->
+    <!-- displaced_mass: 10.05 -->
+
     <link name="base_link">
       <inertial>
         <origin xyz="0 0 0.011" rpy="0 0 0"/>
@@ -15,30 +19,38 @@
         </geometry>
       </visual>
 
+      <!-- Collision volume * fluid_density == displaced mass, used by BuoyancyPlugin -->
       <collision name="base_link_collision">
         <origin xyz="0 0 0.06" rpy="0 0 0"/>
         <geometry>
           <box size = "0.457 0.338 0.06506286173008947"/>
         </geometry>
       </collision>
+
     </link>
 
+    <!-- Hydrodynamics plugin -->
     <gazebo>
-    <plugin filename="ignition-gazebo-hydrodynamics-system" name="ignition::gazebo::systems::Hydrodynamics">
+    <plugin
+        filename="ignition-gazebo-hydrodynamics-system"
+        name="ignition::gazebo::systems::Hydrodynamics">
       <link_name>base_link</link_name>
       <water_density>1000</water_density>
+      <!-- Added mass: -->
       <xDotU>0</xDotU>
       <yDotV>0</yDotV>
       <zDotW>0</zDotW>
       <kDotP>0</kDotP>
       <mDotQ>0</mDotQ>
       <nDotR>0</nDotR>
+      <!-- First order stability derivative: -->
       <xU>0</xU>
       <yV>0</yV>
       <zW>0</zW>
       <kP>0</kP>
       <mQ>0</mQ>
       <nR>0</nR>
+      <!-- Second order stability derivative: -->
       <xUabsU>-33.800000000000004</xUabsU>
       <yVabsV>-54.26875</yVabsV>
       <zWabsW>-73.37135</zWabsW>
@@ -62,6 +74,7 @@
     </link>
 
     <link name="thruster2">
+      <origin xyz="0.14 0.092 0" rpy="-1.5707963267948966 1.5707963267948966 -2.356194490192345"/>
       <visual name="thruster_prop_visual">
         <origin xyz="0 0 0" rpy="1.5707963267948966 0 0"/>
         <geometry>
@@ -75,6 +88,7 @@
     </link>
 
     <link name="thruster3">
+      <origin xyz="-0.14 -0.092 0" rpy="-1.5707963267948966 1.5707963267948966 0.7853981633974483"/>
       <visual name="thruster_prop_visual">
         <origin xyz="0 0 0" rpy="-1.5707963267948966 0 0"/>
         <geometry>
@@ -88,6 +102,7 @@
     </link>
 
     <link name="thruster4">
+      <origin xyz="-0.14 0.092 0" rpy="-1.5707963267948966 1.5707963267948966 2.356194490192345"/>
       <visual name="thruster_prop_visual">
         <origin xyz="0 0 0" rpy="1.5707963267948966 0 0"/>
         <geometry>
@@ -101,6 +116,7 @@
     </link>
 
     <link name="thruster5">
+      <origin xyz="0 -0.109 0.077" rpy="0 0 0"/>
       <visual name="thruster_prop_visual">
         <origin xyz="0 0 0" rpy="-1.5707963267948966 0 1.5707963267948966"/>
         <geometry>
@@ -114,6 +130,7 @@
     </link>
 
     <link name="thruster6">
+      <origin xyz="0 0.109 0.077" rpy="0 0 0"/>
       <visual name="thruster_prop_visual">
         <origin xyz="0 0 0" rpy="1.5707963267948966 0 1.5707963267948966"/>
         <geometry>
@@ -126,56 +143,64 @@
       </inertial>
     </link>
 
+
     <joint name="thruster1_joint" type="revolute">
-      <parent link="base_link" />
-      <child link="thruster1" />
-      <origin xyz="0.14 -0.092 0" rpy="0 0 -0.7853981633974483"/>
-      <axis xyz="1 0 0" />
-      <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
-    </joint>
+    <parent link="base_link" />
+    <child link="thruster1" />
+    <origin xyz="0.14 -0.092 0" rpy="0 0 -0.7853981633974483"/>
+    <axis xyz="1 0 0" />  <!-- CRITICAL FIX: Changed from "0 0 -1" -->
+    <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
+  </joint>
 
-    <joint name="thruster2_joint" type="revolute">
-      <parent link="base_link" />
-      <child link="thruster2" />
-      <origin xyz="0.14 0.092 0" rpy="0 0 -2.356194490192345"/>
-      <axis xyz="1 0 0" />
-      <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
-    </joint>
+  <!-- Thruster 2: Front-Right (45° angle, facing forward-right) -->
+  <joint name="thruster2_joint" type="revolute">
+    <parent link="base_link" />
+    <child link="thruster2" />
+    <origin xyz="0.14 0.092 0" rpy="0 0 -2.356194490192345"/>
+    <axis xyz="1 0 0" />  <!-- CRITICAL FIX: Changed from "0 0 -1" -->
+    <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
+  </joint>
 
-    <joint name="thruster3_joint" type="revolute">
-      <parent link="base_link" />
-      <child link="thruster3" />
-      <origin xyz="-0.14 -0.092 0" rpy="0 0 0.7853981633974483"/>
-      <axis xyz="1 0 0" />
-      <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
-    </joint>
+  <!-- Thruster 3: Back-Left (45° angle, facing backward-left) -->
+  <joint name="thruster3_joint" type="revolute">
+    <parent link="base_link" />
+    <child link="thruster3" />
+    <origin xyz="-0.14 -0.092 0" rpy="0 0 0.7853981633974483"/>
+    <axis xyz="1 0 0" />  <!-- CRITICAL FIX: Changed from "0 0 -1" -->
+    <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
+  </joint>
 
-    <joint name="thruster4_joint" type="revolute">
-      <parent link="base_link" />
-      <child link="thruster4" />
-      <origin xyz="-0.14 0.092 0" rpy="0 0 2.356194490192345"/>
-      <axis xyz="1 0 0" />
-      <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
-    </joint>
+  <!-- Thruster 4: Back-Right (45° angle, facing backward-right) -->
+  <joint name="thruster4_joint" type="revolute">
+    <parent link="base_link" />
+    <child link="thruster4" />
+    <origin xyz="-0.14 0.092 0" rpy="0 0 2.356194490192345"/>
+    <axis xyz="1 0 0" />  <!-- CRITICAL FIX: Changed from "0 0 -1" -->
+    <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
+  </joint>
 
-    <joint name="thruster5_joint" type="revolute">
-      <parent link="base_link" />
-      <child link="thruster5" />
-      <origin xyz="0 -0.109 0.077" rpy="0 0 0"/>
-      <axis xyz="0 0 1" />
-      <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
-    </joint>
+  <!-- Thruster 5: Vertical Front (pointing down) -->
+  <joint name="thruster5_joint" type="revolute">
+    <parent link="base_link" />
+    <child link="thruster5" />
+    <origin xyz="0 -0.109 0.077" rpy="0 0 0"/>
+    <axis xyz="0 0 1" />  <!-- This one is correct -->
+    <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
+  </joint>
 
-    <joint name="thruster6_joint" type="revolute">
-      <parent link="base_link" />
-      <child link="thruster6" />
-      <origin xyz="0 0.109 0.077" rpy="0 0 0"/>
-      <axis xyz="0 0 1" />
-      <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
-    </joint>
+  <!-- Thruster 6: Vertical Back (pointing down) -->
+  <joint name="thruster6_joint" type="revolute">
+    <parent link="base_link" />
+    <child link="thruster6" />
+    <origin xyz="0 0.109 0.077" rpy="0 0 0"/>
+    <axis xyz="0 0 1" />  <!-- This one is correct -->
+    <limit lower="-1e+12" upper="1e+12" effort="-1" velocity="-1"/>
+  </joint>
 
     <gazebo>
-    <plugin filename="ignition-gazebo-thruster-system" name="ignition::gazebo::systems::Thruster">
+    <plugin
+        filename="ignition-gazebo-thruster-system"
+        name="ignition::gazebo::systems::Thruster">
       <namespace>orca4_ign</namespace>
       <joint_name>thruster1_joint</joint_name>
       <thrust_coefficient>0.02</thrust_coefficient>
@@ -187,7 +212,9 @@
     </gazebo>
 
     <gazebo>
-    <plugin filename="ignition-gazebo-thruster-system" name="ignition::gazebo::systems::Thruster">
+    <plugin
+        filename="ignition-gazebo-thruster-system"
+        name="ignition::gazebo::systems::Thruster">
       <namespace>orca4_ign</namespace>
       <joint_name>thruster2_joint</joint_name>
       <thrust_coefficient>0.02</thrust_coefficient>
@@ -199,9 +226,12 @@
     </gazebo>
 
     <gazebo>
-    <plugin filename="ignition-gazebo-thruster-system" name="ignition::gazebo::systems::Thruster">
+    <plugin
+        filename="ignition-gazebo-thruster-system"
+        name="ignition::gazebo::systems::Thruster">
       <namespace>orca4_ign</namespace>
       <joint_name>thruster3_joint</joint_name>
+      <!-- Reverse spin to balance torque -->
       <thrust_coefficient>-0.02</thrust_coefficient>
       <fluid_density>1000</fluid_density>
       <propeller_diameter>0.1</propeller_diameter>
@@ -211,9 +241,12 @@
     </gazebo>
 
     <gazebo>
-    <plugin filename="ignition-gazebo-thruster-system" name="ignition::gazebo::systems::Thruster">
+    <plugin
+        filename="ignition-gazebo-thruster-system"
+        name="ignition::gazebo::systems::Thruster">
       <namespace>orca4_ign</namespace>
       <joint_name>thruster4_joint</joint_name>
+      <!-- Reverse spin to balance torque -->
       <thrust_coefficient>-0.02</thrust_coefficient>
       <fluid_density>1000</fluid_density>
       <propeller_diameter>0.1</propeller_diameter>
@@ -223,7 +256,9 @@
     </gazebo>
 
     <gazebo>
-    <plugin filename="ignition-gazebo-thruster-system" name="ignition::gazebo::systems::Thruster">
+    <plugin
+        filename="ignition-gazebo-thruster-system"
+        name="ignition::gazebo::systems::Thruster">
       <namespace>orca4_ign</namespace>
       <joint_name>thruster5_joint</joint_name>
       <thrust_coefficient>0.02</thrust_coefficient>
@@ -235,9 +270,12 @@
     </gazebo>
 
     <gazebo>
-    <plugin filename="ignition-gazebo-thruster-system" name="ignition::gazebo::systems::Thruster">
+    <plugin
+        filename="ignition-gazebo-thruster-system"
+        name="ignition::gazebo::systems::Thruster">
       <namespace>orca4_ign</namespace>
       <joint_name>thruster6_joint</joint_name>
+      <!-- Reverse spin to balance torque -->
       <thrust_coefficient>-0.02</thrust_coefficient>
       <fluid_density>1000</fluid_density>
       <propeller_diameter>0.1</propeller_diameter>
@@ -246,10 +284,13 @@
     </plugin>
     </gazebo>
 
+    <!-- Left camera link -->
     <link name="left_camera_link">
+      <origin xyz = "0.15 0.2 -0.06749999999999999" rpy= "0 0 0"/>
       <visual name="left_camera_tube">
+        <transparency>0.5</transparency>
         <geometry>
-          <cylinder length="0.135" radius="0.0275" />
+          <cylinder length = "0.135" radius = "0.0275" />
         </geometry>
       </visual>
       <inertial>
@@ -258,16 +299,18 @@
       </inertial>
     </link>
 
+    <!-- Attach left_camera_link to base_link -->
     <joint name="left_camera_joint" type="fixed">
-      <parent link="base_link" />
-      <child link="left_camera_link" />
-      <origin xyz="0.15 0.2 -0.0675" rpy="0 0 1.5707963267948966"/>
+      <parent link = "base_link" />
+      <child link = "left_camera_link" />
+      <origin xyz = "0.15 0.2 -0.0675" rpy= "0 0 1.5707963267948966"/>
     </joint>
 
     <gazebo reference="left_camera_link">
       <sensor name="left_camera" type="camera">
-        <camera>
-          <horizontal_fov>2</horizontal_fov>
+        <origin xyz = "0.15 0.2 -0.0675" rpy = "0 0 1.5707963267948966" />
+          <camera>
+             <horizontal_fov>2</horizontal_fov>
           <image>
             <width>800</width>
             <height>600</height>
@@ -283,12 +326,15 @@
         <visualize>true</visualize>
         <topic>stereo_left</topic>
       </sensor>
-    </gazebo>
+      </gazebo>
 
+    <!-- Right camera link -->
     <link name="right_camera_link">
+      <origin xyz = "0.15 -0.2 -0.0675" rpy = "0 0 0" />
       <visual name="right_camera_tube">
+        <transparency>0.5</transparency>
         <geometry>
-          <cylinder length="0.135" radius="0.0275" />
+          <cylinder length = "0.135" radius = "0.0275" />
         </geometry>
       </visual>
       <inertial>
@@ -297,14 +343,16 @@
       </inertial>
     </link>
 
+    <!-- Attach right_camera_link to base_link -->
     <joint name="right_camera_joint" type="fixed">
-      <parent link="base_link" />
-      <child link="right_camera_link" />
-      <origin xyz="0.15 -0.2 -0.0675" rpy="0 0 -1.5707963267948966" />
+      <parent link = "base_link" />
+      <child link = "right_camera_link" />
+      <origin xyz = "0.15 -0.2 -0.0675" rpy = "0 0 -1.5707963267948966" />
     </joint>
 
     <gazebo reference="right_camera_link">
-      <sensor name="right_camera" type="camera">
+    <sensor name="right_camera" type="camera">
+        <origin xyz = "0.15 -0.2 -0.0675" rpy = "0 0 -1.5707963267948966" />
         <camera>
           <horizontal_fov>1.4</horizontal_fov>
           <image>
@@ -322,76 +370,233 @@
         <visualize>true</visualize>
         <topic>stereo_right</topic>
       </sensor>
-    </gazebo>
+      </gazebo>
+
+    <!-- Publish the ground-truth pose for rviz -->
+    <!-- <plugin
+        filename="ignition-gazebo-odometry-publisher-system"
+        name="ignition::gazebo::systems::OdometryPublisher">
+      <odom_frame>map</odom_frame>
+      <robot_base_frame>orca4_ign</robot_base_frame>
+      <dimensions>3</dimensions>
+    </plugin> -->
 
     <gazebo>
-      <plugin filename="ignition-gazebo-odometry-publisher-system" name="ignition::gazebo::systems::OdometryPublisher">
-        <link_name>base_link</link_name>
-        <odom_publish_topic>/odom</odom_publish_topic>
-        <frame_id>odom</frame_id>
-        <child_frame_id>base_link</child_frame_id>
-        <publish_tf>true</publish_tf>
-        <use_world_coordinates>true</use_world_coordinates>
-        <covariance>
-          0.01 0 0 0 0 0
-          0 0.01 0 0 0 0
-          0 0 0.01 0 0 0
-          0 0 0 0.01 0 0
-          0 0 0 0 0.01 0
-          0 0 0 0 0 0.01
-        </covariance>
-      </plugin>
-    </gazebo>
+    <plugin
+    filename="ignition-gazebo-odometry-publisher-system"
+    name="ignition::gazebo::systems::OdometryPublisher">
+    <link_name>base_link</link_name>  <!-- Use your main body link -->
+    <odom_publish_topic>/odom</odom_publish_topic> <!-- Optional -->
+    <frame_id>odom</frame_id>
+    <child_frame_id>base_link</child_frame_id>
+    <publish_tf>true</publish_tf>
+    <use_world_coordinates>true</use_world_coordinates>
+    <covariance> <!-- Optional -->
+      0.01 0 0 0 0 0
+      0 0.01 0 0 0 0
+      0 0 0.01 0 0 0
+      0 0 0 0.01 0 0
+      0 0 0 0 0.01 0
+      0 0 0 0 0 0.01
+    </covariance>
+  </plugin>
+  </gazebo>
 
     <link name="imu_link">
       <visual name="imu_visual">
         <geometry>
-          <box size="0.1 0.1 0.1"/>
+          <box>
+          <size>0.1 0.1 0.1</size>
+          </box>
         </geometry>
       </visual>
+
       <collision name="imu_collision">
         <geometry>
-          <box size="0.1 0.1 0.1"/>
+          <box>
+          <size>0.1 0.1 0.1</size>
+          </box>
         </geometry>
       </collision>
+
       <inertial>
-        <origin xyz="0 0 0" rpy="3.141592653589793 0 0"/>
-        <mass value="0.001"/>
-        <inertia ixx="0.001" ixy="0.0" ixz="0.0" iyy="0.001" iyz="0.0" izz="0.001"/>
+        <pose>0 0 0 3.141592653589793 0 0</pose>
+        <mass>0.001</mass>
+        <inertia>
+          <ixx>0.001</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.001</iyy>
+          <iyz>0</iyz>
+          <izz>0.001</izz>
+        </inertia>
       </inertial>
     </link>
   
-    <joint name="imu_joint" type="fixed">
-      <parent link="base_link"/>
-      <child link="imu_link"/>
-      <origin xyz="0 0 0.01" rpy="0 0 0"/>
-    </joint>
 
-    <gazebo reference="imu_link">
-      <sensor name="imu_sensor" type="imu">
+  <!-- Forward-facing camera for gate detection -->
+<link name="camera_forward_link">
+  <visual name="camera_forward_visual">
+    <geometry>
+      <box size="0.03 0.06 0.03"/>
+    </geometry>
+    <material name="camera_gray">
+      <color rgba="0.3 0.3 0.3 1.0"/>
+    </material>
+  </visual>
+  
+  <collision name="camera_forward_collision">
+    <geometry>
+      <box size="0.03 0.06 0.03"/>
+    </geometry>
+  </collision>
+  
+  <inertial>
+    <mass value="0.015"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <inertia ixx="0.00001" ixy="0.0" ixz="0.0" 
+             iyy="0.00001" iyz="0.0" izz="0.00001"/>
+  </inertial>
+</link>
+
+<!-- Camera Joint - Fixed to base_link, tilted 15° down for gate detection -->
+<link name="camera_forward_link">
+  <visual name="camera_forward_visual">
+    <geometry>
+      <box size="0.03 0.06 0.03"/>
+    </geometry>
+    <material name="camera_gray">
+      <color rgba="0.3 0.3 0.3 1.0"/>
+    </material>
+  </visual>
+  
+  <collision name="camera_forward_collision">
+    <geometry>
+      <box size="0.03 0.06 0.03"/>
+    </geometry>
+  </collision>
+  
+  <inertial>
+    <mass value="0.015"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <inertia ixx="0.00001" ixy="0.0" ixz="0.0" 
+             iyy="0.00001" iyz="0.0" izz="0.00001"/>
+  </inertial>
+</link>
+
+<!-- CRITICAL FIX: Camera looks STRAIGHT AHEAD (rpy="0 0 0") -->
+<joint name="camera_forward_joint" type="fixed">
+  <parent link="base_link"/>
+  <child link="camera_forward_link"/>
+  <!-- Position: 23cm forward, NO PITCH DOWN -->
+  <origin xyz="0.23 0 0" rpy="0 0 0"/>
+</joint>
+
+<!-- Camera Sensor Plugin - Optimized for 12m gate detection -->
+<gazebo reference="camera_forward_link">
+  <sensor name="camera_forward" type="camera">
+    <pose>0 0 0 0 0 0</pose>
+    <camera>
+      <!-- Wide FOV for better gate acquisition -->
+      <horizontal_fov>1.91</horizontal_fov>  <!-- 109.4 degrees -->
+      
+      <image>
+        <width>1280</width>
+        <height>960</height>
+        <format>RGB_INT8</format>
+      </image>
+      
+      <!-- Extended clipping for long-range -->
+      <clip>
+        <near>0.1</near>
+        <far>50.0</far>
+      </clip>
+      
+      <!-- Standard pinhole lens -->
+      <lens>
+        <type>custom</type>
+        <custom_function>
+          <c1>1.05</c1>
+          <c2>4</c2>
+          <f>1.0</f>
+          <fun>tan</fun>
+        </custom_function>
+        <scale_to_hfov>true</scale_to_hfov>
+        <cutoff_angle>3.1415</cutoff_angle>
+        <env_texture_size>512</env_texture_size>
+      </lens>
+      
+      <!-- Minimal distortion -->
+      <distortion>
+        <k1>0.0</k1>
+        <k2>0.0</k2>
+        <k3>0.0</k3>
+        <p1>0.0</p1>
+        <p2>0.0</p2>
+        <center>0.5 0.5</center>
+      </distortion>
+      
+      <!-- Low noise for HSV detection -->
+      <noise>
+        <type>gaussian</type>
+        <mean>0.0</mean>
+        <stddev>0.003</stddev>
+      </noise>
+      
+      <optical_frame_id>camera_forward_link</optical_frame_id>
+    </camera>
+    
+    <always_on>1</always_on>
+    <update_rate>30</update_rate>
+    <visualize>true</visualize>
+    <topic>/camera_forward/image_raw</topic>
+  </sensor>
+</gazebo>
+
+
+
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+    <origin xyz="0 0 0.01"/>
+  </joint>
+
+
+  <gazebo reference="imu_link">
+  <sensor name="imu_sensor" type="imu">
         <ignition_frame_id>imu_link</ignition_frame_id>
+        <plugin filename="ignition-gazebo-imu-system" name="ignition::gazebo::systems::Imu">
+        </plugin>
+
         <topic>/demo/imu</topic>
         <always_on>true</always_on>
         <update_rate>100</update_rate>
         <visualize>true</visualize>
+        <enable_metrics>true</enable_metrics>
         <imu>
           <angular_velocity>
             <x>
               <noise type="gaussian">
                 <mean>0.0</mean>
                 <stddev>2e-4</stddev>
+                <bias_mean>0.0000075</bias_mean>
+                <bias_stddev>0.0000008</bias_stddev>
               </noise>
             </x>
             <y>
               <noise type="gaussian">
                 <mean>0.0</mean>
                 <stddev>2e-4</stddev>
+                <bias_mean>0.0000075</bias_mean>
+                <bias_stddev>0.0000008</bias_stddev>
               </noise>
             </y>
             <z>
               <noise type="gaussian">
                 <mean>0.0</mean>
                 <stddev>2e-4</stddev>
+                <bias_mean>0.0000075</bias_mean>
+                <bias_stddev>0.0000008</bias_stddev>
               </noise>
             </z>
           </angular_velocity>
@@ -400,76 +605,30 @@
               <noise type="gaussian">
                 <mean>0.0</mean>
                 <stddev>1.7e-2</stddev>
+                <bias_mean>0.1</bias_mean>
+                <bias_stddev>0.001</bias_stddev>
               </noise>
             </x>
             <y>
               <noise type="gaussian">
                 <mean>0.0</mean>
                 <stddev>1.7e-2</stddev>
+                <bias_mean>0.1</bias_mean>
+                <bias_stddev>0.001</bias_stddev>
               </noise>
             </y>
             <z>
               <noise type="gaussian">
                 <mean>0.0</mean>
                 <stddev>1.7e-2</stddev>
+                <bias_mean>0.1</bias_mean>
+                <bias_stddev>0.001</bias_stddev>
               </noise>
             </z>
           </linear_acceleration>
+          <frame_id>imu_link</frame_id>
         </imu>
       </sensor>
-    </gazebo>
-
-    <link name="camera_forward_link">
-      <visual name="camera_forward_visual">
-        <geometry>
-          <box size="0.03 0.06 0.03"/>
-        </geometry>
-      </visual>
-      <collision name="camera_forward_collision">
-        <geometry>
-          <box size="0.03 0.06 0.03"/>
-        </geometry>
-      </collision>
-      <inertial>
-        <mass value="0.015"/>
-        <inertia ixx="0.00001" ixy="0.0" ixz="0.0" iyy="0.00001" iyz="0.0" izz="0.00001"/>
-      </inertial>
-    </link>
-
-    <joint name="camera_forward_joint" type="fixed">
-      <parent link="base_link"/>
-      <child link="camera_forward_link"/>
-      <origin xyz="0.23 0 0" rpy="0 0 0"/>
-    </joint>
-
-    <gazebo reference="camera_forward_link">
-      <sensor name="camera_forward" type="camera">
-        <camera>
-          <horizontal_fov>1.91</horizontal_fov>
-          <image>
-            <width>1280</width>
-            <height>960</height>
-            <format>RGB_INT8</format>
-          </image>
-          <clip>
-            <near>0.1</near>
-            <far>50.0</far>
-          </clip>
-          <distortion>
-            <k1>0.0</k1>
-            <k2>0.0</k2>
-            <k3>0.0</k3>
-            <p1>0.0</p1>
-            <p2>0.0</p2>
-            <center>0.5 0.5</center>
-          </distortion>
-          <optical_frame_id>camera_forward_link</optical_frame_id>
-        </camera>
-        <always_on>1</always_on>
-        <update_rate>30</update_rate>
-        <visualize>true</visualize>
-        <topic>/camera_forward/image_raw</topic>
-      </sensor>
-    </gazebo>
+  </gazebo>
 
 </robot>
