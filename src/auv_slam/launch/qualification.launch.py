@@ -10,16 +10,16 @@ import launch_ros.descriptions
 def generate_launch_description():
     pkg_auv_slam = get_package_share_directory('auv_slam')
     
-    # --- PATHS ---
-    # Ensure this points to your NEW world file
-    world_path = os.path.join(pkg_auv_slam, 'worlds', 'qualification_world.sdf')
+    # --- CONFIG FILES ---
+    # Using 'qualification_params.yaml' as requested
     qual_config = os.path.join(pkg_auv_slam, 'config', 'qualification_params.yaml')
+    
+    world_path = os.path.join(pkg_auv_slam, 'worlds', 'qualification_world.sdf')
     bridge_config = os.path.join(pkg_auv_slam, 'config', 'ign_bridge.yaml')
     rviz_config = os.path.join(pkg_auv_slam, 'rviz', 'urdf_config.rviz')
     urdf_path = os.path.join(pkg_auv_slam, 'urdf', 'orca4_description.urdf')
 
     # --- ENVIRONMENT ---
-    # Setup paths so Gazebo can find the orange gate models
     gz_models_path = os.path.join(pkg_auv_slam, "models")
     gz_resource_path = os.environ.get("GZ_SIM_RESOURCE_PATH", default="")
     gz_env = {
@@ -29,7 +29,6 @@ def generate_launch_description():
 
     # --- NODES ---
 
-    # 1. State Publishers
     robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
@@ -49,14 +48,12 @@ def generate_launch_description():
         parameters=[{'use_sim_time': True}]
     )
 
-    # 2. Simulation (Ignition Gazebo)
     gazebo_sim = ExecuteProcess(
         cmd=['ign', 'gazebo', '-r', '-v', '3', world_path],
         output='screen',
         additional_env=gz_env
     )
 
-    # 3. Bridges
     bridge = Node(
         package="ros_gz_bridge",
         executable="parameter_bridge",
@@ -73,7 +70,6 @@ def generate_launch_description():
         arguments=['/stereo_left/image', '/stereo_left/depth_image'],
     )
 
-    # 4. RViz
     rviz = Node(
         package='rviz2',
         executable='rviz2',
@@ -83,7 +79,6 @@ def generate_launch_description():
         parameters=[{'use_sim_time': True}]
     )
 
-    # 5. Qualification Nodes
     thruster_mapper = Node(
         package='auv_slam',
         executable='simple_thruster_mapper.py',
@@ -92,13 +87,13 @@ def generate_launch_description():
         parameters=[qual_config]
     )
 
+    # REMAPPING ADDED: Ensuring detector sees the bridged camera image
     gate_detector = Node(
         package='auv_slam',
         executable='gate_detector_node.py',
         name='qualification_gate_detector',
         output='screen',
         parameters=[qual_config],
-        # Remap to ensure we are listening to the right camera topic
         remappings=[
             ('/image_raw', '/stereo_left/image'), 
             ('/gate/debug_image', '/gate/debug_image')
@@ -118,8 +113,6 @@ def generate_launch_description():
         ]
     )
 
-    # 6. RQT Image View (Added as requested)
-    # This will open a window showing what the robot sees
     rqt_view = Node(
         package='rqt_image_view',
         executable='rqt_image_view',
