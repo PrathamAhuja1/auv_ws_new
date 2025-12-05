@@ -1,27 +1,101 @@
-# src/auv_slam/config/qualification_params.yaml
+# SAUVC Qualification Task Configuration
+# Updated for proper qualification world specifications
+
 qualification_gate_detector:
   ros__parameters:
-    # VERY PERMISSIVE Orange/Yellow range for underwater
-    orange_lower: [0, 40, 40]    # Starts at pure red (H=0)
-    orange_upper: [40, 255, 255]  # Extends to yellow (H=40)
+    # ORANGE HSV RANGE - For underwater orange gate detection
+    # Wider range to handle underwater lighting conditions
+    orange_lower: [5, 80, 80]      # Very permissive for underwater
+    orange_upper: [35, 255, 255]   # Covers orange to yellow range
     
-    min_area_strict: 200   # Lowered from 300
-    gate_width: 1.5
-    publish_debug: true
+    # Detection parameters
+    min_area_strict: 200             # Minimum area for valid detection (pixels)
+    gate_width: 1.5                  # Physical gate width in meters
+    publish_debug: true              # Enable debug image publishing
+    
+    # Temporal filtering for stability
+    detection_history_size: 5
+    min_detections_for_confirm: 3
 
 qualification_navigator:
   ros__parameters:
-    target_depth: -1.3
-    search_speed: 0.3   
-    search_yaw_speed: 0.15 
-    approach_speed: 0.4
-    passing_speed: 1.0
-    alignment_threshold: 0.1
-    alignment_yaw_gain: 2.0
-    max_mission_time: 300.0
+    # ===================================
+    # CRITICAL QUALIFICATION PARAMETERS
+    # ===================================
+    
+    # Depth control
+    target_depth: -1.0               # Target operating depth (1m below surface)
+    
+    # Starting zone (per rulebook: 140cm x 140cm)
+    starting_zone_x: -10.0           # X position of starting zone center
+    starting_zone_size: 1.4          # Size of starting zone (meters)
+    
+    # Gate position
+    gate_x_position: 0.0             # X position where gate is located
+    
+    # ===================================
+    # NAVIGATION PARAMETERS
+    # ===================================
+    
+    # Search behavior
+    search_speed: 0.3                # Forward speed while searching
+    search_yaw_speed: 0.2            # Rotation speed for sweep pattern
+    
+    # Alignment
+    alignment_threshold: 0.15        # Frame position error threshold (±15%)
+    alignment_yaw_gain: 2.5          # Yaw correction gain during alignment
+    alignment_timeout: 20.0          # Maximum time for alignment (seconds)
+    
+    # Approach
+    approach_speed: 0.4              # Speed when approaching gate
+    approach_yaw_gain: 1.5           # Yaw correction during approach
+    
+    # Passing
+    passing_distance: 1.5            # Distance to commit to passing (meters)
+    passing_speed: 0.8               # Maximum speed through gate
+    passing_clearance: 1.5           # Distance past gate to consider cleared
+    
+    # Timeouts
+    max_mission_time: 300.0          # Maximum mission duration (5 minutes)
 
 simple_thruster_mapper:
   ros__parameters:
-    max_thrust: 10.0
-    thrust_scale: 20.0
-    vertical_thrust_boost: 3.0
+    # Thruster configuration
+    max_thrust: 10.0                 # Maximum thrust per thruster (N)
+    thrust_scale: 20.0               # Scaling factor for thrust allocation
+    vertical_thrust_boost: 3.0       # Extra power for vertical thrusters
+    
+    # Dead zones
+    deadband_threshold: 0.02         # Minimum command to activate thruster
+    max_thrust_rate: 25.0            # Maximum rate of thrust change
+    
+    # Individual thruster trim (for balancing if needed)
+    thruster_trim:
+      t1: 1.0  # Front-left horizontal
+      t2: 1.0  # Front-right horizontal  
+      t3: 1.0  # Back-left horizontal
+      t4: 1.0  # Back-right horizontal
+      t5: 1.0  # Front vertical
+      t6: 1.0  # Back vertical
+
+# Safety monitoring (optional but recommended)
+safety_monitor:
+  ros__parameters:
+    # Depth limits
+    max_depth: -1.5                  # Maximum safe depth
+    min_depth: 0.2                   # Minimum depth (above surface)
+    
+    # Orientation limits
+    max_roll: 0.785                  # 45 degrees
+    max_pitch: 0.785                 # 45 degrees
+    
+    # Pool boundaries (25m x 16m pool)
+    pool_bounds_x: [-12.5, 12.5]     # Length bounds
+    pool_bounds_y: [-8.0, 8.0]       # Width bounds
+    
+    # Timeouts
+    watchdog_timeout: 5.0            # Sensor timeout threshold
+    max_mission_time: 300.0          # 5 minute limit
+    
+    # Emergency response
+    emergency_surface_thrust: 1.0    # Full upward thrust on emergency
