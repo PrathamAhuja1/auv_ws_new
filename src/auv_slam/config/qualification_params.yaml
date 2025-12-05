@@ -1,28 +1,25 @@
-# SAUVC Qualification Parameters
-
-# 1. Detector: Tuned for ORANGE gate (Rulebook)
 qualification_gate_detector:
   ros__parameters:
-    orange_lower: [10, 120, 120]  # Tuning for orange marker
-    orange_upper: [25, 255, 255]
-    min_area_strict: 400
-    gate_width: 1.5  # SAUVC Rulebook
-    publish_debug: true
+    # --- HSV Thresholds for Orange Gate (Gazebo) ---
+    # Water is usually Blue/Grey. We want ONLY Orange.
+    
+    # Hue: Orange is typically 0-20 or 170-180
+    h_min: 0
+    h_max: 25
+    
+    # Saturation: High saturation to ignore grey shadows
+    s_min: 100
+    s_max: 255
+    
+    # Value: High brightness to ignore dark water bottom
+    v_min: 100
+    v_max: 255
+    
+    # --- Contour Filtering ---
+    # Ignore small specks of noise (increase if still noisy)
+    min_contour_area: 500.0
 
-# 2. Navigator: Specific tuning for the new script
 qualification_navigator:
   ros__parameters:
-    target_depth: -1.3     # Safe depth for pool
-    search_speed: 0.4      # Slow search
-    approach_speed: 0.5    # Controlled approach
-    passing_speed: 1.0     # Fast pass to overcome drift
-    alignment_threshold: 0.1
-    alignment_yaw_gain: 2.0
-    max_mission_time: 300.0
-
-# 3. Thruster Mapper (Standard)
-simple_thruster_mapper:
-  ros__parameters:
-    max_thrust: 10.0
-    thrust_scale: 20.0
-    vertical_thrust_boost: 2.5 # High boost to maintain depth stability
+    forward_speed: 0.5
+    search_yaw_speed: 0.2

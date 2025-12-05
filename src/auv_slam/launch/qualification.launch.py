@@ -2,31 +2,88 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, TimerAction, ExecuteProcess, DeclareLaunchArgument
-from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.actions import ExecuteProcess, TimerAction
+from launch.substitutions import Command
 from launch_ros.actions import Node
+import launch_ros.descriptions
 
 def generate_launch_description():
-    pkg_path = get_package_share_directory('auv_slam')
-    qual_config = os.path.join(pkg_path, 'config', 'qualification_run.yaml')
+    pkg_auv_slam = get_package_share_directory('auv_slam')
     
-    # 1. Launch World (Gazebo)
-    # Re-using logic from display.launch.py but overriding the world file
-    display_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(pkg_path, 'launch', 'display.launch.py')
-        ),
-        launch_arguments={
-            'use_sim_time': 'True',
-            'world': os.path.join(pkg_path, 'worlds', 'qualification_world.sdf') # Pointing to new world
-        }.items()
+    # --- PATHS ---
+    # Ensure this points to your NEW world file
+    world_path = os.path.join(pkg_auv_slam, 'worlds', 'qualification_world.sdf')
+    qual_config = os.path.join(pkg_auv_slam, 'config', 'qualification_params.yaml')
+    bridge_config = os.path.join(pkg_auv_slam, 'config', 'ign_bridge.yaml')
+    rviz_config = os.path.join(pkg_auv_slam, 'rviz', 'urdf_config.rviz')
+    urdf_path = os.path.join(pkg_auv_slam, 'urdf', 'orca4_description.urdf')
+
+    # --- ENVIRONMENT ---
+    # Setup paths so Gazebo can find the orange gate models
+    gz_models_path = os.path.join(pkg_auv_slam, "models")
+    gz_resource_path = os.environ.get("GZ_SIM_RESOURCE_PATH", default="")
+    gz_env = {
+        'GZ_SIM_RESOURCE_PATH': ':'.join([gz_resource_path, gz_models_path]),
+        'IGN_GAZEBO_RESOURCE_PATH': ':'.join([gz_resource_path, gz_models_path])
+    }
+
+    # --- NODES ---
+
+    # 1. State Publishers
+    robot_state_publisher = Node(
+        package='robot_state_publisher',
+        executable='robot_state_publisher',
+        output='screen',
+        parameters=[{
+            'robot_description': launch_ros.descriptions.ParameterValue(
+                Command(['xacro ', urdf_path]), value_type=str
+            ),
+            'use_sim_time': True
+        }]
+    )
+
+    joint_state_publisher = Node(
+        package='joint_state_publisher',
+        executable='joint_state_publisher',
+        name='joint_state_publisher',
+        parameters=[{'use_sim_time': True}]
+    )
+
+    # 2. Simulation (Ignition Gazebo)
+    gazebo_sim = ExecuteProcess(
+        cmd=['ign', 'gazebo', '-r', '-v', '3', world_path],
+        output='screen',
+        additional_env=gz_env
+    )
+
+    # 3. Bridges
+    bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        arguments=['--ros-args', '-p', f'config_file:={bridge_config}'],
+        output="screen",
     )
     
-    # If display.launch.py doesn't accept 'world' arg natively, we might need to 
-    # adjust, but usually it's cleaner to just include the necessary nodes here 
-    # if display.launch is rigid. However, assuming standard setup:
-    
-    # 2. Thruster Mapper
+    camera_bridge = Node(
+        package='ros_gz_image',
+        executable='image_bridge',
+        name='bridge_gz_ros_camera_image',
+        output='screen',
+        parameters=[{'use_sim_time': True}],
+        arguments=['/stereo_left/image', '/stereo_left/depth_image'],
+    )
+
+    # 4. RViz
+    rviz = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
+        output='screen',
+        arguments=['-d', rviz_config],
+        parameters=[{'use_sim_time': True}]
+    )
+
+    # 5. Qualification Nodes
     thruster_mapper = Node(
         package='auv_slam',
         executable='simple_thruster_mapper.py',
@@ -34,21 +91,22 @@ def generate_launch_description():
         output='screen',
         parameters=[qual_config]
     )
-    
-    # 3. Gate Detector (Redefine as qualification detector)
+
     gate_detector = Node(
         package='auv_slam',
         executable='gate_detector_node.py',
         name='qualification_gate_detector',
         output='screen',
         parameters=[qual_config],
-        remappings=[('/gate/detected', '/gate/detected'),
-                    ('/gate/frame_position', '/gate/frame_position')]
+        # Remap to ensure we are listening to the right camera topic
+        remappings=[
+            ('/image_raw', '/stereo_left/image'), 
+            ('/gate/debug_image', '/gate/debug_image')
+        ]
     )
-    
-    # 4. Qualification Navigator
+
     navigator = TimerAction(
-        period=8.0,
+        period=10.0,
         actions=[
             Node(
                 package='auv_slam',
@@ -60,11 +118,24 @@ def generate_launch_description():
         ]
     )
 
+    # 6. RQT Image View (Added as requested)
+    # This will open a window showing what the robot sees
+    rqt_view = Node(
+        package='rqt_image_view',
+        executable='rqt_image_view',
+        name='rqt_image_view',
+        arguments=['/gate/debug_image']
+    )
+
     return LaunchDescription([
-        display_launch,
+        gazebo_sim,
+        robot_state_publisher,
+        joint_state_publisher,
+        bridge,
+        camera_bridge,
+        rviz,
         thruster_mapper,
         gate_detector,
         navigator,
-        # Debug view
-        ExecuteProcess(cmd=['rqt_image_view', '/gate/debug_image'], output='screen')
+        TimerAction(period=5.0, actions=[rqt_view])
     ])
