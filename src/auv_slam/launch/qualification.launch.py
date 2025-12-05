@@ -85,6 +85,7 @@ def generate_launch_description():
         parameters=[qual_config]
     )
 
+    # UPDATED: Remapping to '/stereo_left/image' (the bridge output)
     gate_detector = Node(
         package='auv_slam',
         executable='qualification_detector.py',
@@ -111,11 +112,12 @@ def generate_launch_description():
         ]
     )
 
+    # UPDATED: Corrected argument to view the debug image
     rqt_view = Node(
         package='rqt_image_view',
         executable='rqt_image_view',
         name='rqt_image_view',
-        arguments=['/camera_forward/image_row']
+        arguments=['/gate/debug_image']
     )
 
     return LaunchDescription([
