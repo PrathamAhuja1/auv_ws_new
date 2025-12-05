@@ -1,73 +1,28 @@
-# Qualification Mission Parameters
+# SAUVC Qualification Parameters
 
+# 1. Detector: Tuned for ORANGE gate (Rulebook)
 qualification_gate_detector:
   ros__parameters:
-    # HSV ranges for ORANGE markers on qualification gate
-    orange_lower: [10, 120, 120]
+    orange_lower: [10, 120, 120]  # Tuning for orange marker
     orange_upper: [25, 255, 255]
-    
-    # Detection parameters
     min_area_strict: 400
-    min_area_relaxed: 100
-    aspect_threshold: 1.5  # Vertical posts
-    gate_width: 1.5  # 150cm per rulebook
-    
-    # Temporal filtering
-    detection_history_size: 5
-    min_confirmations: 2
-    
+    gate_width: 1.5  # SAUVC Rulebook
     publish_debug: true
 
+# 2. Navigator: Specific tuning for the new script
 qualification_navigator:
   ros__parameters:
-    # Depth control
-    target_depth: -1.3  # Operating depth during mission
-    submerge_depth: -0.8  # Initial submersion depth
-    depth_correction_gain: 1.2
-    
-    # Speed parameters
-    search_speed: 0.4
-    approach_speed: 0.5
-    passing_speed: 0.7
-    
-    # Alignment parameters
-    alignment_threshold: 0.10  # ±10% for good alignment
-    alignment_yaw_gain: 3.0
-    alignment_max_time: 20.0
-    
-    # U-turn parameters
-    uturn_radius: 1.5
-    uturn_speed: 0.3
-    uturn_rotation_rate: 0.8
-    
-    # Gate positions (based on world file)
-    gate_x_position: 0.0  # Gate center at X=0
-    starting_wall_x: -10.0  # Starting wall at X=-10
-    
-    # Safety parameters
-    max_mission_time: 300.0  # 5 minutes max
-    min_safe_depth: 0.2
-    max_safe_depth: -2.3
-
-# Safety Monitor (reuse existing)
-enhanced_safety_monitor:
-  ros__parameters:
-    max_depth: -2.3
-    min_depth: 0.2
-    max_roll: 0.785
-    max_pitch: 0.785
-    watchdog_timeout: 5.0
+    target_depth: -1.3     # Safe depth for pool
+    search_speed: 0.4      # Slow search
+    approach_speed: 0.5    # Controlled approach
+    passing_speed: 1.0     # Fast pass to overcome drift
+    alignment_threshold: 0.1
+    alignment_yaw_gain: 2.0
     max_mission_time: 300.0
-    pool_bounds_x: [-10.5, 10.5]
-    pool_bounds_y: [-5.5, 5.5]
-    emergency_surface_thrust: 1.0
 
-# Thruster Mapper (reuse existing)
+# 3. Thruster Mapper (Standard)
 simple_thruster_mapper:
   ros__parameters:
     max_thrust: 10.0
-    min_thrust: -10.0
     thrust_scale: 20.0
-    vertical_thrust_boost: 2.5
-    deadband_threshold: 0.02
-    max_thrust_rate: 25.0
+    vertical_thrust_boost: 2.5 # High boost to maintain depth stability
