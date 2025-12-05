@@ -1,10 +1,11 @@
+# src/auv_slam/config/qualification_params.yaml
 qualification_gate_detector:
   ros__parameters:
-
-    orange_lower: [0, 50, 50]
-    orange_upper: [30, 255, 255]
-
-    min_area_strict: 300
+    # VERY PERMISSIVE Orange/Yellow range for underwater
+    orange_lower: [0, 40, 40]    # Starts at pure red (H=0)
+    orange_upper: [40, 255, 255]  # Extends to yellow (H=40)
+    
+    min_area_strict: 200   # Lowered from 300
     gate_width: 1.5
     publish_debug: true
 
@@ -15,7 +16,6 @@ qualification_navigator:
     search_yaw_speed: 0.15 
     approach_speed: 0.4
     passing_speed: 1.0
-
     alignment_threshold: 0.1
     alignment_yaw_gain: 2.0
     max_mission_time: 300.0
