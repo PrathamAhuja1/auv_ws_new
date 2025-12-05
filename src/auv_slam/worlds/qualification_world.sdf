@@ -2,14 +2,12 @@
 <sdf version="1.6">
   <world name="sauvc_qualification">
     
-    <!-- Underwater lighting -->
     <scene>
       <ambient>0.1 0.3 0.4</ambient>
       <background>0.0 0.3 0.5</background>
       <shadows>true</shadows>
     </scene>
     
-    <!-- Physics -->
     <physics name="default" type="ode">
       <max_step_size>0.001</max_step_size>
       <real_time_factor>1.0</real_time_factor>
@@ -17,7 +15,6 @@
       <gravity>0 0 -9.81</gravity>
     </physics>
 
-    <!-- Required Gazebo plugins -->
     <plugin name='ignition::gazebo::systems::Physics' filename='ignition-gazebo-physics-system'/>
     <plugin name='ignition::gazebo::systems::UserCommands' filename='ignition-gazebo-user-commands-system'/>
     <plugin name='ignition::gazebo::systems::SceneBroadcaster' filename='ignition-gazebo-scene-broadcaster-system'/>
@@ -29,7 +26,6 @@
       <uniform_fluid_density>1000</uniform_fluid_density>
     </plugin>
     
-    <!-- Sunlight -->
     <light type="directional" name="sun">
       <cast_shadows>true</cast_shadows>
       <pose>0 0 10 0 0 0</pose>
@@ -44,28 +40,10 @@
       <direction>-0.5 0.1 -0.9</direction>
     </light>
 
-    <!-- Underwater ambient light -->
-    <light type="point" name="underwater_light">
-      <pose>0 0 -0.5 0 0 0</pose>
-      <diffuse>0.4 0.5 0.6 1</diffuse>
-      <specular>0.2 0.2 0.2 1</specular>
-      <attenuation>
-        <range>30</range>
-        <constant>0.5</constant>
-        <linear>0.01</linear>
-        <quadratic>0.001</quadratic>
-      </attenuation>
-    </light>
-
-    <!-- ================================================================ -->
-    <!-- QUALIFICATION POOL - 25m x 16m with sloped bottom                -->
-    <!-- Depth: 1.2m at walls, 1.6m in center (sloped)                   -->
-    <!-- ================================================================ -->
     <model name="qualification_pool">
       <static>true</static>
       <link name="pool_link">
         
-        <!-- Pool floor - sloped from 1.2m at edges to 1.6m in center -->
         <collision name="floor_collision">
           <pose>0 0 -1.4 0 0 0</pose>
           <geometry>
@@ -88,7 +66,6 @@
           </material>
         </visual>
 
-        <!-- Wall 1 - Length side (+Y) -->
         <collision name="wall1_collision">
           <pose>0 8.05 -0.7 0 0 0</pose>
           <geometry>
@@ -111,7 +88,6 @@
           </material>
         </visual>
 
-        <!-- Wall 2 - Length side (-Y) -->
         <collision name="wall2_collision">
           <pose>0 -8.05 -0.7 0 0 0</pose>
           <geometry>
@@ -134,7 +110,6 @@
           </material>
         </visual>
 
-        <!-- Wall 3 - Width side (+X, far end) -->
         <collision name="wall3_collision">
           <pose>12.55 0 -0.7 0 0 0</pose>
           <geometry>
@@ -157,7 +132,6 @@
           </material>
         </visual>
 
-        <!-- Wall 4 - Width side (-X, starting end) -->
         <collision name="wall4_collision">
           <pose>-12.55 0 -0.7 0 0 0</pose>
           <geometry>
@@ -180,7 +154,6 @@
           </material>
         </visual>
 
-        <!-- Water surface indicator -->
         <visual name="water_surface">
           <pose>0 0 0 0 0 0</pose>
           <geometry>
@@ -198,30 +171,67 @@
       </link>
     </model>
 
-    <!-- ================================================================ -->
-    <!-- STARTING ZONE - 140cm x 140cm (1.4m x 1.4m)                      -->
-    <!-- Marked on water surface at starting end                          -->
-    <!-- Position: 10m from qualification gate                            -->
-    <!-- ================================================================ -->
     <model name="starting_zone">
       <static>true</static>
       <pose>-10 0 0.005 0 0 0</pose>
       <link name="zone_link">
-        <visual name="zone_visual">
+        
+        <visual name="strip_top">
+          <pose>0 0.675 0 0 0 0</pose>
           <geometry>
             <box>
-              <size>1.4 1.4 0.01</size>
+              <size>1.4 0.05 0.01</size>
             </box>
           </geometry>
           <material>
-            <ambient>1 1 0 1</ambient>
-            <diffuse>1 1 0 1</diffuse>
-            <specular>0.8 0.8 0.0 1</specular>
-            <emissive>0.8 0.8 0.0 1</emissive>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <emissive>1 1 1 1</emissive>
+          </material>
+        </visual>
+
+        <visual name="strip_bottom">
+          <pose>0 -0.675 0 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>1.4 0.05 0.01</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <emissive>1 1 1 1</emissive>
+          </material>
+        </visual>
+
+        <visual name="strip_left">
+          <pose>-0.675 0 0 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.05 1.3 0.01</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <emissive>1 1 1 1</emissive>
+          </material>
+        </visual>
+
+        <visual name="strip_right">
+          <pose>0.675 0 0 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.05 1.3 0.01</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <emissive>1 1 1 1</emissive>
           </material>
         </visual>
         
-        <!-- Corner markers for visibility -->
         <visual name="corner_fl">
           <pose>-0.7 -0.7 0.05 0 0 0</pose>
           <geometry>
@@ -231,9 +241,9 @@
             </cylinder>
           </geometry>
           <material>
-            <ambient>1 1 0 1</ambient>
-            <diffuse>1 1 0 1</diffuse>
-            <emissive>1 1 0 1</emissive>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <emissive>1 1 1 1</emissive>
           </material>
         </visual>
         
@@ -246,9 +256,9 @@
             </cylinder>
           </geometry>
           <material>
-            <ambient>1 1 0 1</ambient>
-            <diffuse>1 1 0 1</diffuse>
-            <emissive>1 1 0 1</emissive>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <emissive>1 1 1 1</emissive>
           </material>
         </visual>
         
@@ -261,9 +271,9 @@
             </cylinder>
           </geometry>
           <material>
-            <ambient>1 1 0 1</ambient>
-            <diffuse>1 1 0 1</diffuse>
-            <emissive>1 1 0 1</emissive>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <emissive>1 1 1 1</emissive>
           </material>
         </visual>
         
@@ -276,29 +286,19 @@
             </cylinder>
           </geometry>
           <material>
-            <ambient>1 1 0 1</ambient>
-            <diffuse>1 1 0 1</diffuse>
-            <emissive>1 1 0 1</emissive>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <emissive>1 1 1 1</emissive>
           </material>
         </visual>
       </link>
     </model>
 
-    <!-- ================================================================ -->
-    <!-- QUALIFICATION GATE - 150cm wide, spans from bottom to surface    -->
-    <!-- Orange markers on both port and starboard sides                  -->
-    <!-- Position: 10m from starting zone, centered in pool               -->
-    <!-- Gate height: From pool bottom (-1.4m) to water surface (0m)      -->
-    <!-- ================================================================ -->
     <model name="qualification_gate">
       <static>true</static>
       <pose>0 0 -0.7 0 0 0</pose>
       <link name="gate_link">
         
-        <!-- ============================================ -->
-        <!-- LEFT POST (PORT SIDE) - Orange               -->
-        <!-- Position: 0.75m to the left (-Y direction)   -->
-        <!-- ============================================ -->
         <collision name="left_post_collision">
           <pose>0 -0.75 0 0 0 0</pose>
           <geometry>
@@ -308,7 +308,6 @@
           </geometry>
         </collision>
         
-        <!-- Orange visual for left post -->
         <visual name="left_post_visual">
           <pose>0 -0.75 0 0 0 0</pose>
           <geometry>
@@ -324,10 +323,6 @@
           </material>
         </visual>
 
-        <!-- ============================================ -->
-        <!-- RIGHT POST (STARBOARD SIDE) - Orange         -->
-        <!-- Position: 0.75m to the right (+Y direction)  -->
-        <!-- ============================================ -->
         <collision name="right_post_collision">
           <pose>0 0.75 0 0 0 0</pose>
           <geometry>
@@ -337,7 +332,6 @@
           </geometry>
         </collision>
         
-        <!-- Orange visual for right post -->
         <visual name="right_post_visual">
           <pose>0 0.75 0 0 0 0</pose>
           <geometry>
@@ -353,9 +347,6 @@
           </material>
         </visual>
 
-        <!-- ============================================ -->
-        <!-- TOP BAR - Connects the two posts              -->
-        <!-- ============================================ -->
         <collision name="top_bar_collision">
           <pose>0 0 0.7 0 0 0</pose>
           <geometry>
@@ -380,7 +371,6 @@
           </material>
         </visual>
 
-        <!-- Additional visual markers for gate detection -->
         <visual name="left_marker">
           <pose>0 -0.75 0 0 0 0</pose>
           <geometry>
@@ -416,9 +406,6 @@
       </link>
     </model>
 
-    <!-- ================================================================ -->
-    <!-- DISTANCE MARKERS - Help visualize the 10m distance               -->
-    <!-- ================================================================ -->
     <model name="distance_marker_5m">
       <static>true</static>
       <pose>-5 0 0.01 0 0 0</pose>
@@ -437,17 +424,11 @@
       </link>
     </model>
 
-    <!-- ================================================================ -->
-    <!-- SPAWN AUV AT STARTING ZONE                                       -->
-    <!-- Position: Center of starting zone, at surface                    -->
-    <!-- Must submerge autonomously before leaving zone                   -->
-    <!-- ================================================================ -->
     <include>
       <uri>model://auv_slam/models/orca4_ign</uri>
       <pose>-10 0 -0.3 0 0 0</pose>
     </include>
 
-    <!-- Optional: Top-down camera for monitoring -->
     <model name="overhead_camera">
       <static>true</static>
       <link name="camera_link">
