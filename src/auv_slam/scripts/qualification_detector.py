@@ -1,153 +1,102 @@
 #!/usr/bin/env python3
-"""
-FILE: qualification_detector.py
-Purpose: Robust detection of the Orange/Red Qualification Gate.
-Updates: Added QoS Best Effort to fix 'Blank Image' issue.
-"""
-
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
-from sensor_msgs.msg import Image, CameraInfo
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import Image
 from std_msgs.msg import Bool, Float32
 from cv_bridge import CvBridge, CvBridgeError
 import cv2
 import numpy as np
-from collections import deque
 
 class QualificationDetector(Node):
     def __init__(self):
-        super().__init__('qualification_gate_detector')
+        super().__init__('qualification_detector')
         self.bridge = CvBridge()
-        self.fx = 300.0  # Default focal length
         
-        # --- ROBUST ORANGE/RED RANGES ---
-        # Range 1: Orange/Red (Includes generic orange and washed out red)
-        self.lower1 = np.array([0, 40, 40])
-        self.upper1 = np.array([25, 255, 255])
-        
-        # Range 2: Deep Red wrap-around (For darker shadows)
-        self.lower2 = np.array([160, 40, 40])
-        self.upper2 = np.array([180, 255, 255])
-        
-        self.min_area = 500  # Minimum pixel area
-        
-        # Stability Buffer
-        self.history = deque(maxlen=5)
-        self.min_confirmations = 2
-        
-        # --- QOS PROFILE (CRITICAL FOR BRIDGE CONNECTION) ---
-        # Matches logic in gate_detector_node.py
-        qos_sensor = QoSProfile(
-            reliability=ReliabilityPolicy.BEST_EFFORT,
-            history=HistoryPolicy.KEEP_LAST,
-            depth=1
-        )
+        # --- COLOR TUNING FOR YOUR IMAGE ---
+        # The gate in the image is bright Yellow-Orange.
+        # Hue: 0-40 covers Red to Yellow.
+        # Saturation: Lowered to 60 because water desaturates color.
+        self.lower_orange = np.array([0, 60, 60])
+        self.upper_orange = np.array([40, 255, 255])
         
         # --- SUBSCRIBERS ---
-        # Subscribe to 'image_raw' with Best Effort QoS
-        self.create_subscription(Image, 'image_raw', self.image_callback, qos_sensor)
-        self.create_subscription(CameraInfo, 'camera_info', self.info_callback, qos_sensor)
+        # CRITICAL: qos_profile_sensor_data fixes the 'Blank Image' issue
+        # by matching the simulator's "Best Effort" setting.
+        self.create_subscription(
+            Image, 
+            'image_raw', 
+            self.image_callback, 
+            qos_profile_sensor_data
+        )
         
         # --- PUBLISHERS ---
         self.detect_pub = self.create_publisher(Bool, '/gate/detected', 10)
         self.pos_pub = self.create_publisher(Float32, '/gate/frame_position', 10)
-        self.dist_pub = self.create_publisher(Float32, '/gate/estimated_distance', 10)
         self.debug_pub = self.create_publisher(Image, '/gate/debug_image', 10)
         
-        self.get_logger().info('✅ Qualification Detector Initialized (QoS: Best Effort)')
-
-    def info_callback(self, msg):
-        if msg.k:
-            k = np.array(msg.k).reshape((3, 3))
-            self.fx = k[0, 0]
+        self.get_logger().info('✅ Detector Started - Waiting for camera stream...')
 
     def image_callback(self, msg):
-        # Debug log to confirm connection (throttled to avoid spam)
-        self.get_logger().info(f'Processing Image...', throttle_duration_sec=2.0)
-
         try:
             cv_img = self.bridge.imgmsg_to_cv2(msg, "bgr8")
         except CvBridgeError as e:
             self.get_logger().error(f'CV Bridge Error: {e}')
             return
 
-        h, w = cv_img.shape[:2]
+        # 1. Convert to HSV
         hsv = cv2.cvtColor(cv_img, cv2.COLOR_BGR2HSV)
         
-        # 1. Color Thresholding
-        mask1 = cv2.inRange(hsv, self.lower1, self.upper1)
-        mask2 = cv2.inRange(hsv, self.lower2, self.upper2)
-        mask = cv2.bitwise_or(mask1, mask2)
+        # 2. Create Mask based on the new Orange/Yellow thresholds
+        mask = cv2.inRange(hsv, self.lower_orange, self.upper_orange)
         
-        # Clean up noise
+        # 3. Clean noise (remove small white speckles from water)
         kernel = np.ones((5, 5), np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-        
-        # 2. Find Contours
+        mask = cv2.dilate(mask, kernel, iterations=1)
+
+        # 4. Find Contours
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         gate_found = False
-        frame_pos = 0.0
-        distance = 999.0
+        target_x = 0.0
         
-        valid_cnts = [c for c in contours if cv2.contourArea(c) > self.min_area]
+        # Find the largest object (The Gate)
+        if contours:
+            largest_cnt = max(contours, key=cv2.contourArea)
+            
+            if cv2.contourArea(largest_cnt) > 1000: # Filter out small noise
+                gate_found = True
+                x, y, w, h = cv2.boundingRect(largest_cnt)
+                
+                # Calculate center relative to image width (-1.0 to 1.0)
+                img_center_x = cv_img.shape[1] // 2
+                obj_center_x = x + (w // 2)
+                target_x = (obj_center_x - img_center_x) / (cv_img.shape[1] / 2)
+                
+                # Draw Box and Center Point
+                cv2.rectangle(cv_img, (x, y), (x+w, y+h), (0, 255, 0), 3)
+                cv2.circle(cv_img, (obj_center_x, y + h//2), 5, (0, 0, 255), -1)
+                cv2.putText(cv_img, "GATE DETECTED", (x, y-10), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
         
-        if valid_cnts:
-            gate_found = True
-            
-            # Combine all parts to find the center of the entire gate structure
-            all_pts = np.concatenate(valid_cnts)
-            x, y, bw, bh = cv2.boundingRect(all_pts)
-            cx = x + bw // 2
-            cy = y + bh // 2
-            
-            # Position: -1.0 (Left) to +1.0 (Right)
-            frame_pos = (cx - w/2) / (w/2)
-            
-            # Distance Estimate
-            if bw > 0:
-                distance = (1.5 * self.fx) / bw
-                distance = max(0.5, min(distance, 15.0))
-            
-            # Debug Draw
-            cv2.rectangle(cv_img, (x, y), (x+bw, y+bh), (0, 255, 0), 3)
-            cv2.circle(cv_img, (cx, cy), 10, (0, 0, 255), -1)
-            cv2.putText(cv_img, f"GATE {distance:.1f}m", (x, y-10), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-            cv2.putText(cv_img, f"Pos: {frame_pos:.2f}", (x, y+bh+25), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-        else:
-            cv2.putText(cv_img, "SEARCHING...", (50, 50), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
+        # 5. Publish Status
+        self.detect_pub.publish(Bool(data=gate_found))
+        if gate_found:
+            self.pos_pub.publish(Float32(data=float(target_x)))
 
-        # 3. Publish Data
-        self.history.append(gate_found)
-        is_stable = sum(self.history) >= self.min_confirmations
-        
-        self.detect_pub.publish(Bool(data=is_stable))
-        
-        if is_stable:
-            self.pos_pub.publish(Float32(data=float(frame_pos)))
-            self.dist_pub.publish(Float32(data=float(distance)))
-            
-        # Publish Debug Image
+        # 6. Publish Debug Image (ALWAYS publish this so you don't get a blank screen)
         try:
             self.debug_pub.publish(self.bridge.cv2_to_imgmsg(cv_img, "bgr8"))
-        except:
+        except CvBridgeError:
             pass
 
 def main(args=None):
     rclpy.init(args=args)
     node = QualificationDetector()
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

@@ -10,14 +10,13 @@ import launch_ros.descriptions
 def generate_launch_description():
     pkg_auv_slam = get_package_share_directory('auv_slam')
     
-    # --- CONFIG FILES ---
+    # Paths
     qual_config = os.path.join(pkg_auv_slam, 'config', 'qualification_params.yaml')
     world_path = os.path.join(pkg_auv_slam, 'worlds', 'qualification_world.sdf')
     bridge_config = os.path.join(pkg_auv_slam, 'config', 'ign_bridge.yaml')
-    rviz_config = os.path.join(pkg_auv_slam, 'rviz', 'urdf_config.rviz')
     urdf_path = os.path.join(pkg_auv_slam, 'urdf', 'orca4_description.urdf')
 
-    # --- ENVIRONMENT ---
+    # Environment
     gz_models_path = os.path.join(pkg_auv_slam, "models")
     gz_resource_path = os.environ.get("GZ_SIM_RESOURCE_PATH", default="")
     gz_env = {
@@ -25,8 +24,23 @@ def generate_launch_description():
         'IGN_GAZEBO_RESOURCE_PATH': ':'.join([gz_resource_path, gz_models_path])
     }
 
-    # --- NODES ---
+    # 1. Gazebo Sim
+    gazebo_sim = ExecuteProcess(
+        cmd=['ign', 'gazebo', '-r', '-v', '3', world_path],
+        output='screen',
+        additional_env=gz_env
+    )
 
+    # 2. Parameter Bridge (Clock, etc)
+    bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        arguments=['--ros-args', '-p', f'config_file:={bridge_config}'],
+        output="screen",
+    )
+    
+
+    # 4. Robot State Publisher
     robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
@@ -39,44 +53,7 @@ def generate_launch_description():
         }]
     )
 
-    joint_state_publisher = Node(
-        package='joint_state_publisher',
-        executable='joint_state_publisher',
-        name='joint_state_publisher',
-        parameters=[{'use_sim_time': True}]
-    )
-
-    gazebo_sim = ExecuteProcess(
-        cmd=['ign', 'gazebo', '-r', '-v', '3', world_path],
-        output='screen',
-        additional_env=gz_env
-    )
-
-    bridge = Node(
-        package="ros_gz_bridge",
-        executable="parameter_bridge",
-        arguments=['--ros-args', '-p', f'config_file:={bridge_config}'],
-        output="screen",
-    )
-    
-    camera_bridge = Node(
-        package='ros_gz_image',
-        executable='image_bridge',
-        name='bridge_gz_ros_camera_image',
-        output='screen',
-        parameters=[{'use_sim_time': True}],
-        arguments=['/stereo_left/image', '/stereo_left/depth_image'],
-    )
-
-    rviz = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
-        output='screen',
-        arguments=['-d', rviz_config],
-        parameters=[{'use_sim_time': True}]
-    )
-
+    # 5. Thruster Mapper
     thruster_mapper = Node(
         package='auv_slam',
         executable='simple_thruster_mapper.py',
@@ -87,20 +64,20 @@ def generate_launch_description():
 
 
     gate_detector = Node(
-        package='auv_slam',
-        executable='qualification_detector.py',
-        name='qualification_gate_detector',
-        output='screen',
-        parameters=[qual_config],
-        remappings=[
-            ('image_raw', '/stereo_left/image'), 
-            ('camera_info', '/stereo_left/camera_info'),
-            ('/gate/debug_image', '/gate/debug_image')
-        ]
-    )
+    package='auv_slam',
+    executable='qualification_detector.py',
+    name='qualification_gate_detector',
+    output='screen',
+    parameters=[qual_config],
+    remappings=[
+        ('image_raw', '/camera_forward/image_raw'), 
+        ('camera_info', '/camera_forward/camera_info'),
+    ]
+)
 
+    # 7. Navigator (Delayed start)
     navigator = TimerAction(
-        period=10.0,
+        period=8.0,
         actions=[
             Node(
                 package='auv_slam',
@@ -112,7 +89,8 @@ def generate_launch_description():
         ]
     )
 
-    # Opens the Debug View automatically
+    # 8. Visualizer (RQT)
+    # Starts automatically looking at the debug feed
     rqt_view = Node(
         package='rqt_image_view',
         executable='rqt_image_view',
@@ -122,11 +100,8 @@ def generate_launch_description():
 
     return LaunchDescription([
         gazebo_sim,
-        robot_state_publisher,
-        joint_state_publisher,
         bridge,
-        camera_bridge,
-        rviz,
+        robot_state_publisher,
         thruster_mapper,
         gate_detector,
         navigator,
