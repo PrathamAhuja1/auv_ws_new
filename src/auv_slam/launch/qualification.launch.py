@@ -11,9 +11,7 @@ def generate_launch_description():
     pkg_auv_slam = get_package_share_directory('auv_slam')
     
     # --- CONFIG FILES ---
-    # Using 'qualification_params.yaml' as requested
     qual_config = os.path.join(pkg_auv_slam, 'config', 'qualification_params.yaml')
-    
     world_path = os.path.join(pkg_auv_slam, 'worlds', 'qualification_world.sdf')
     bridge_config = os.path.join(pkg_auv_slam, 'config', 'ign_bridge.yaml')
     rviz_config = os.path.join(pkg_auv_slam, 'rviz', 'urdf_config.rviz')
@@ -87,15 +85,15 @@ def generate_launch_description():
         parameters=[qual_config]
     )
 
-    # REMAPPING ADDED: Ensuring detector sees the bridged camera image
     gate_detector = Node(
         package='auv_slam',
-        executable='gate_detector_node.py',
+        executable='qualification_detector.py',
         name='qualification_gate_detector',
         output='screen',
         parameters=[qual_config],
         remappings=[
-            ('/image_raw', '/stereo_left/image'), 
+            ('image_raw', '/stereo_left/image'), 
+            ('camera_info', '/stereo_left/camera_info'),
             ('/gate/debug_image', '/gate/debug_image')
         ]
     )
@@ -117,7 +115,7 @@ def generate_launch_description():
         package='rqt_image_view',
         executable='rqt_image_view',
         name='rqt_image_view',
-        arguments=['/gate/debug_image']
+        arguments=['/camera_forward/image_row']
     )
 
     return LaunchDescription([

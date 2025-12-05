@@ -33,6 +33,7 @@ install(PROGRAMS
   scripts/diagnostic_node.py
   scripts/simple_thruster_mapper.py
   scripts/qualification_navigator.py
+  scripts/qualification_detector.py
   DESTINATION lib/${PROJECT_NAME})
 
 
