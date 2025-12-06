@@ -111,7 +111,7 @@ def generate_launch_description():
 
     thruster_mapper = Node(
         package='auv_slam',
-        executable='simple_thruster_mapper.py',
+        executable='thruster_configuration.py',
         name='thruster_mapper',
         output='screen',
         parameters=[thruster_params]
