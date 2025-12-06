@@ -32,7 +32,7 @@ class QualificationNavigator(Node):
         
         self.state = self.S_SEARCH_FWD
         
-        # [CRITICAL FIX] Target depth must be shallower than pool floor (-1.4m)
+
         self.declare_parameter('target_depth', -0.8) 
         self.target_depth = self.get_parameter('target_depth').value
         
