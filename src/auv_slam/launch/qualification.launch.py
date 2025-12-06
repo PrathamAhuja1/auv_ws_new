@@ -7,10 +7,10 @@ Executes the full SAUVC Qualification Task in 'qualification_world.sdf'
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, TimerAction, ExecuteProcess
-from launch.substitutions import LaunchConfiguration, Command, FindExecutable
+from launch.actions import TimerAction, ExecuteProcess
+from launch.substitutions import LaunchConfiguration, Command
 from launch_ros.actions import Node
-# [FIX] Import ParameterValue to handle large string parameters like URDFs
+# [FIX] Import ParameterValue for URDF string handling
 from launch_ros.descriptions import ParameterValue
 
 def generate_launch_description():
@@ -117,6 +117,7 @@ def generate_launch_description():
         parameters=[thruster_params]
     )
     
+    # Using the NEW Qualification Detector
     gate_detector = Node(
         package='auv_slam',
         executable='qualification_detector_node.py',
