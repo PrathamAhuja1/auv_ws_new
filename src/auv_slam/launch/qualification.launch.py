@@ -10,7 +10,6 @@ from launch import LaunchDescription
 from launch.actions import TimerAction, ExecuteProcess
 from launch.substitutions import LaunchConfiguration, Command
 from launch_ros.actions import Node
-# [FIX] Import ParameterValue for URDF string handling
 from launch_ros.descriptions import ParameterValue
 
 def generate_launch_description():
@@ -18,14 +17,17 @@ def generate_launch_description():
     
     # --- Paths ---
     thruster_params = os.path.join(auv_slam_share, 'config', 'thruster_params.yaml')
-    gate_params = os.path.join(auv_slam_share, 'config', 'gate_params.yaml')
+    
+    # [CRITICAL] Use the new Qualification Parameters file
+    qual_params = os.path.join(auv_slam_share, 'config', 'qualification_params.yaml')
+    
     bridge_config_path = os.path.join(auv_slam_share, 'config', 'ign_bridge.yaml')
     
     # Model & Config
     default_model_path = os.path.join(auv_slam_share, 'urdf', 'orca4_description.urdf')
     default_rviz_config_path = os.path.join(auv_slam_share, 'rviz', 'urdf_config.rviz')
 
-    # [CRITICAL] USE QUALIFICATION WORLD
+    # Qualification World
     world_path = os.path.join(auv_slam_share, "worlds", "qualification_world.sdf")
 
     # --- Gazebo Environment Setup ---
@@ -47,7 +49,6 @@ def generate_launch_description():
     gz_verbosity = LaunchConfiguration('gz_verbosity', default='2')
 
     # 1. Robot State Publisher
-    # [FIX] Wrapped Command in ParameterValue(..., value_type=str)
     robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
@@ -58,7 +59,6 @@ def generate_launch_description():
     )
     
     # 2. Joint State Publisher
-    # [FIX] Wrapped Command in ParameterValue(..., value_type=str)
     joint_state_publisher = Node(
         package='joint_state_publisher',
         executable='joint_state_publisher',
@@ -117,24 +117,25 @@ def generate_launch_description():
         parameters=[thruster_params]
     )
     
-    # Using the NEW Qualification Detector
+
     gate_detector = Node(
         package='auv_slam',
         executable='qualification_detector_node.py',
-        name='gate_detector_node',
+        name='qualification_detector_node', 
         output='screen',
-        parameters=[gate_params]
+        parameters=[qual_params] 
     )
     
+
     gate_navigator = TimerAction(
         period=5.0,
         actions=[
             Node(
                 package='auv_slam',
                 executable='qualification_navigator_node.py',
-                name='gate_navigator_node',
+                name='qualification_navigator_node', 
                 output='screen',
-                parameters=[gate_params]
+                parameters=[qual_params] 
             )
         ]
     )
