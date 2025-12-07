@@ -1,49 +1,38 @@
-# Qualification Gate Parameters
-gate_detector_node:
-  ros__parameters:
-    gate_width: 1.5  # 150cm wide gate
-    min_stripe_area: 500
-    min_flare_area: 2000
-    aspect_threshold: 2.5
 
-gate_navigator_node:
+qualification_detector_node:
   ros__parameters:
-    # Starting conditions
-    target_depth: -1.5
-    submersion_speed: 0.3
-    submersion_duration: 3.0
+    # HSV RANGES - Matches simulation colors
+    red_lower1: [0, 100, 100]
+    red_upper1: [10, 255, 255]
+    red_lower2: [170, 100, 100]
+    red_upper2: [180, 255, 255]
     
-    # Search
-    search_forward_speed: 0.4
-    search_rotation_speed: 0.15
+    green_lower: [40, 100, 100]
+    green_upper: [80, 255, 255]
     
-    # Approach
-    approach_start_distance: 8.0
-    approach_stop_distance: 3.5
+    orange_lower: [10, 120, 120]
+    orange_upper: [25, 255, 255]
+    
+    # Detection thresholds
+    min_area_strict: 300
+    min_area_relaxed: 80
+    aspect_threshold: 0.8
+    gate_width_meters: 1.5
+    
+    publish_debug: true
+
+
+qualification_navigator_node:
+  ros__parameters:
+    target_depth: -0.8
+    
+    # Control Parameters
+    depth_deadband: 0.1
+    depth_gain_weak: 0.5
+    depth_gain_strong: 1.5
+    
+    # Navigation Speeds
+    search_speed: 0.3
     approach_speed: 0.5
-    approach_yaw_gain: 1.0
-    
-    # Alignment
-    alignment_distance: 3.5
-    alignment_threshold: 0.08
-    alignment_max_time: 12.0
-    alignment_yaw_gain: 3.5
-    
-    # Final approach
-    final_approach_trigger: 3.5
-    final_approach_speed: 0.4
-    final_approach_threshold: 0.12
-    
-    # Passing
-    passing_trigger_distance: 1.8
-    passing_speed: 0.8
-    gate_width: 1.5
-    
-    # U-turn
-    uturn_rotation_speed: 0.4
-    uturn_duration: 8.0
-    uturn_depth_gain: 1.5
-    
-    # Reverse pass
-    reverse_approach_speed: -0.4
-    reverse_passing_speed: -0.8
+    passing_speed: 1.0
+    passing_duration: 6.0
