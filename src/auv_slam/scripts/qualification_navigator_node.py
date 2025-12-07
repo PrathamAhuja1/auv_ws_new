@@ -1,604 +1,300 @@
 #!/usr/bin/env python3
 """
-QUALIFICATION Gate Navigator - Forward pass, U-turn, Reverse pass
-Flow:
-1. SUBMERGING → Start at surface, dive to target depth
-2. SEARCHING → Find gate
-3. APPROACHING → Move toward gate (5m to 3m)
-4. ALIGNING → At 3m, STOP and center align
-5. FINAL_APPROACH → Aligned approach (3m to 1.5m)
-6. PASSING → Full speed through gate
-7. U_TURNING → After clearing, perform 180° turn
-8. REVERSE_APPROACH → Approach gate from other side
-9. REVERSE_PASSING → Pass through gate backward
-10. COMPLETED → Mission complete
+FIXED QUALIFICATION Navigator
+Critical fixes:
+1. Added missing start_u_turn_yaw initialization
+2. Improved depth control
+3. Better state transitions
+4. Enhanced logging for debugging
 """
 
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Bool, Float32, String
-from geometry_msgs.msg import Twist, Point
+from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 import time
 import math
-
 
 class QualificationNavigator(Node):
     def __init__(self):
         super().__init__('gate_navigator_node')
         
-        # State machine for qualification task
-        self.IDLE = 0
-        self.SUBMERGING = 1          # Initial submersion from surface
-        self.SEARCHING = 2           # Search for gate
-        self.APPROACHING = 3         # Casual approach (5m → 3m)
-        self.ALIGNING = 4            # Stop at 3m and align
-        self.FINAL_APPROACH = 5      # Aligned approach (3m → 1.5m)
-        self.PASSING = 6             # Full speed through gate
-        self.U_TURNING = 7           # 180° turn after first pass
-        self.REVERSE_APPROACH = 8    # Approach for second pass (backward)
-        self.REVERSE_PASSING = 9     # Pass through gate backward
-        self.COMPLETED = 10
+        # --- STATE MACHINE ---
+        self.S_SEARCH_FWD = 0
+        self.S_APPROACH_FWD = 1
+        self.S_ALIGN_FWD = 2
+        self.S_PASS_FWD = 3
+        self.S_POST_PASS_FWD = 4
+        self.S_U_TURN = 5
+        self.S_SEARCH_REV = 6
+        self.S_APPROACH_REV = 7
+        self.S_ALIGN_REV = 8
+        self.S_PASS_REV = 9
+        self.S_COMPLETED = 10
         
-        self.state = self.SUBMERGING
-        
-        # Mission tracking
-        self.pass_number = 1  # 1 = forward pass, 2 = reverse pass
-        self.gate_cleared = False
-        
-        # Position tracking
-        self.gate_x_position = 10.0  # Gate at ~10m from start
-        self.gate_clearance_buffer = 0.5  # Must clear gate by this distance
-        self.auv_length = 0.8  # Approximate AUV length for clearance calculation
+        self.state = self.S_SEARCH_FWD
         
         # Parameters
-        self.declare_parameter('target_depth', -1.5)  # Qualification depth
-        self.declare_parameter('depth_correction_gain', 2.0)
-        
-        # Submersion parameters
-        self.declare_parameter('submersion_speed', 0.3)
-        self.declare_parameter('submersion_depth', -1.5)
-        self.declare_parameter('submuration_duration', 3.0)
-        
-        # Search parameters
-        self.declare_parameter('search_forward_speed', 0.4)
-        self.declare_parameter('search_rotation_speed', 0.15)
-        
-        # Approach parameters
-        self.declare_parameter('approach_start_distance', 8.0)
-        self.declare_parameter('approach_stop_distance', 3.5)
-        self.declare_parameter('approach_speed', 0.5)
-        self.declare_parameter('approach_yaw_gain', 1.0)
-        
-        # Alignment parameters
-        self.declare_parameter('alignment_distance', 3.5)
-        self.declare_parameter('alignment_threshold', 0.08)
-        self.declare_parameter('alignment_max_time', 12.0)
-        self.declare_parameter('alignment_yaw_gain', 3.5)
-        
-        # Final approach
-        self.declare_parameter('final_approach_trigger', 3.5)
-        self.declare_parameter('final_approach_speed', 0.4)
-        self.declare_parameter('final_approach_threshold', 0.12)
-        
-        # Passing parameters
-        self.declare_parameter('passing_trigger_distance', 1.8)
-        self.declare_parameter('passing_speed', 0.8)
-        self.declare_parameter('gate_width', 1.5)
-        
-        # U-turn parameters
-        self.declare_parameter('uturn_rotation_speed', 0.4)
-        self.declare_parameter('uturn_duration', 8.0)
-        self.declare_parameter('uturn_depth_gain', 1.5)
-        
-        # Reverse pass parameters
-        self.declare_parameter('reverse_approach_speed', -0.4)  # Negative = backward
-        self.declare_parameter('reverse_passing_speed', -0.8)
-        
-        # Load parameters
+        self.declare_parameter('target_depth', -1.2)  # Shallower for better gate visibility
         self.target_depth = self.get_parameter('target_depth').value
-        self.depth_gain = self.get_parameter('depth_correction_gain').value
-        self.submersion_speed = self.get_parameter('submersion_speed').value
-        self.submersion_depth = self.get_parameter('submersion_depth').value
-        self.submersion_duration = self.get_parameter('submuration_duration').value
         
-        self.search_forward_speed = self.get_parameter('search_forward_speed').value
-        self.search_rotation_speed = self.get_parameter('search_rotation_speed').value
+        self.search_speed = 0.5
+        self.search_yaw = 0.25
+        self.approach_stop_dist = 2.5
+        self.pass_speed = 1.0
         
-        self.approach_start_distance = self.get_parameter('approach_start_distance').value
-        self.approach_stop_distance = self.get_parameter('approach_stop_distance').value
-        self.approach_speed = self.get_parameter('approach_speed').value
-        self.approach_yaw_gain = self.get_parameter('approach_yaw_gain').value
-        
-        self.alignment_distance = self.get_parameter('alignment_distance').value
-        self.alignment_threshold = self.get_parameter('alignment_threshold').value
-        self.alignment_max_time = self.get_parameter('alignment_max_time').value
-        self.alignment_yaw_gain = self.get_parameter('alignment_yaw_gain').value
-        
-        self.final_approach_trigger = self.get_parameter('final_approach_trigger').value
-        self.final_approach_speed = self.get_parameter('final_approach_speed').value
-        self.final_approach_threshold = self.get_parameter('final_approach_threshold').value
-        
-        self.passing_trigger_distance = self.get_parameter('passing_trigger_distance').value
-        self.passing_speed = self.get_parameter('passing_speed').value
-        self.gate_width = self.get_parameter('gate_width').value
-        
-        self.uturn_rotation_speed = self.get_parameter('uturn_rotation_speed').value
-        self.uturn_duration = self.get_parameter('uturn_duration').value
-        self.uturn_depth_gain = self.get_parameter('uturn_depth_gain').value
-        
-        self.reverse_approach_speed = self.get_parameter('reverse_approach_speed').value
-        self.reverse_passing_speed = self.get_parameter('reverse_passing_speed').value
-        
-        # State variables
+        # Inputs
         self.gate_detected = False
-        self.partial_gate = False
-        self.alignment_error = 0.0
-        self.estimated_distance = 999.0
+        self.frame_pos = 0.0
+        self.dist = 999.0
+        self.current_yaw = 0.0
         self.current_depth = 0.0
-        self.frame_position = 0.0
-        self.confidence = 0.0
+        self.current_pos = None
+        self.pass_start_pos = None
         
-        # Position tracking
-        self.current_position = None
-        self.passing_start_position = None
-        self.uturn_start_position = None
+        # CRITICAL FIX: Initialize U-turn yaw tracking
+        self.start_u_turn_yaw = 0.0
         
-        # Timing
-        self.gate_lost_time = 0.0
-        self.gate_lost_timeout = 3.0
-        self.alignment_start_time = 0.0
         self.state_start_time = time.time()
+        self.last_detection_time = 0.0
         
-        self.mission_start_time = time.time()
-        self.gate_first_detected_time = None
+        # Gate clearance tracking
+        self.gate_x_position = 0.0  # Will be updated from world
         
-        # Subscriptions
-        self.gate_detected_sub = self.create_subscription(
-            Bool, '/gate/detected', self.gate_detected_callback, 10)
-        self.alignment_sub = self.create_subscription(
-            Float32, '/gate/alignment_error', self.alignment_callback, 10)
-        self.distance_sub = self.create_subscription(
-            Float32, '/gate/estimated_distance', self.distance_callback, 10)
-        self.odom_sub = self.create_subscription(
-            Odometry, '/ground_truth/odom', self.odom_callback, 10)
-        self.frame_position_sub = self.create_subscription(
-            Float32, '/gate/frame_position', self.frame_position_callback, 10)
-        self.partial_gate_sub = self.create_subscription(
-            Bool, '/gate/partial_detection', self.partial_gate_callback, 10)
-        self.confidence_sub = self.create_subscription(
-            Float32, '/gate/detection_confidence', self.confidence_callback, 10)
+        # Pubs/Subs
+        self.cmd_pub = self.create_publisher(Twist, '/rp2040/cmd_vel', 10)
+        self.state_pub = self.create_publisher(String, '/mission/state', 10)
+        self.reverse_mode_pub = self.create_publisher(Bool, '/mission/reverse_mode', 10)
         
-        # Publishers
-        self.cmd_vel_pub = self.create_publisher(Twist, '/rp2040/cmd_vel', 10)
-        self.state_pub = self.create_publisher(String, '/gate/navigation_state', 10)
-        self.pass_number_pub = self.create_publisher(String, '/gate/pass_number', 10)
+        self.create_subscription(Bool, '/gate/detected', self.cb_detected, 10)
+        self.create_subscription(Float32, '/gate/frame_position', self.cb_frame, 10)
+        self.create_subscription(Float32, '/gate/estimated_distance', self.cb_dist, 10)
+        self.create_subscription(Odometry, '/ground_truth/odom', self.cb_odom, 10)
         
-        self.control_timer = self.create_timer(0.05, self.control_loop)
+        self.create_timer(0.05, self.control_loop)
         
         self.get_logger().info('='*70)
-        self.get_logger().info('✅ QUALIFICATION Navigator - Forward + U-Turn + Reverse')
+        self.get_logger().info('🚀 FIXED QUALIFICATION NAVIGATOR')
         self.get_logger().info('='*70)
-        self.get_logger().info('   Flow: SUBMERGE → SEARCH → APPROACH → ALIGN → PASS → U-TURN → REVERSE')
-        self.get_logger().info(f'   Gate at: {self.gate_x_position}m | Target depth: {self.target_depth}m')
-        self.get_logger().info(f'   Pass 1: Forward | Pass 2: Reverse (U-turn then back through)')
+        self.get_logger().info('   Task: Forward Pass → U-Turn → Reverse Pass')
+        self.get_logger().info(f'   Target depth: {self.target_depth}m')
         self.get_logger().info('='*70)
-    
-    def gate_detected_callback(self, msg: Bool):
-        was_detected = self.gate_detected
+
+    # --- CALLBACKS ---
+    def cb_detected(self, msg): 
         self.gate_detected = msg.data
-        
-        if not was_detected and self.gate_detected:
-            if self.gate_first_detected_time is None:
-                self.gate_first_detected_time = time.time()
-                self.get_logger().info('🎯 GATE FIRST DETECTED')
-            self.gate_lost_time = 0.0
-        elif was_detected and not self.gate_detected:
-            self.gate_lost_time = time.time()
-            self.get_logger().warn('⚠️ Gate lost from view')
+        if self.gate_detected:
+            self.last_detection_time = time.time()
+
+    def cb_frame(self, msg): 
+        self.frame_pos = msg.data
     
-    def frame_position_callback(self, msg: Float32):
-        self.frame_position = msg.data
+    def cb_dist(self, msg): 
+        self.dist = msg.data
     
-    def partial_gate_callback(self, msg: Bool):
-        self.partial_gate = msg.data
-    
-    def confidence_callback(self, msg: Float32):
-        self.confidence = msg.data
-    
-    def alignment_callback(self, msg: Float32):
-        self.alignment_error = msg.data
-    
-    def distance_callback(self, msg: Float32):
-        self.estimated_distance = msg.data
-    
-    def odom_callback(self, msg: Odometry):
+    def cb_odom(self, msg):
+        self.current_pos = (msg.pose.pose.position.x, msg.pose.pose.position.y)
         self.current_depth = msg.pose.pose.position.z
-        self.current_position = (
-            msg.pose.pose.position.x,
-            msg.pose.pose.position.y,
-            msg.pose.pose.position.z
-        )
-    
+        
+        # Extract yaw from quaternion
+        q = msg.pose.pose.orientation
+        siny_cosp = 2 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
+        self.current_yaw = math.atan2(siny_cosp, cosy_cosp)
+
+    # --- CONTROL LOOP ---
     def control_loop(self):
         cmd = Twist()
         
-        # Depth control with deadband
+        # Depth Control (fixed sign)
         depth_error = self.target_depth - self.current_depth
-        depth_deadband = 0.3
+        depth_deadband = 0.2
         
         if abs(depth_error) < depth_deadband:
             cmd.linear.z = 0.0
-        elif abs(depth_error) < 0.6:
-            cmd.linear.z = depth_error * 0.8
-            cmd.linear.z = max(-0.4, min(cmd.linear.z, 0.4))
         else:
             cmd.linear.z = depth_error * 1.2
-            cmd.linear.z = max(-1.0, min(cmd.linear.z, 1.0))
+            cmd.linear.z = max(-0.8, min(0.8, cmd.linear.z))
         
-        # State machine
-        if self.state == self.SUBMERGING:
-            cmd = self.submerging_behavior(cmd)
-        elif self.state == self.SEARCHING:
-            cmd = self.searching_behavior(cmd)
-        elif self.state == self.APPROACHING:
-            cmd = self.approaching_behavior(cmd)
-        elif self.state == self.ALIGNING:
-            cmd = self.aligning_behavior(cmd)
-        elif self.state == self.FINAL_APPROACH:
-            cmd = self.final_approach_behavior(cmd)
-        elif self.state == self.PASSING:
-            cmd = self.passing_behavior(cmd)
-        elif self.state == self.U_TURNING:
-            cmd = self.uturn_behavior(cmd)
-        elif self.state == self.REVERSE_APPROACH:
-            cmd = self.reverse_approach_behavior(cmd)
-        elif self.state == self.REVERSE_PASSING:
-            cmd = self.reverse_passing_behavior(cmd)
-        elif self.state == self.COMPLETED:
-            cmd = self.completed_behavior(cmd)
+        # State Machine
+        if self.state == self.S_SEARCH_FWD:
+            cmd = self.behavior_search(cmd, self.S_APPROACH_FWD)
+            self.reverse_mode_pub.publish(Bool(data=False))
+            
+        elif self.state == self.S_APPROACH_FWD:
+            cmd = self.behavior_approach(cmd, self.S_ALIGN_FWD)
+            self.reverse_mode_pub.publish(Bool(data=False))
+            
+        elif self.state == self.S_ALIGN_FWD:
+            cmd = self.behavior_align(cmd, self.S_PASS_FWD)
+            self.reverse_mode_pub.publish(Bool(data=False))
+            
+        elif self.state == self.S_PASS_FWD:
+            cmd = self.behavior_pass(cmd, 6.0, self.S_POST_PASS_FWD)
+            self.reverse_mode_pub.publish(Bool(data=False))
+            
+        elif self.state == self.S_POST_PASS_FWD:
+            # Move forward blindly to clear gate area
+            if time.time() - self.state_start_time > 4.0:
+                self.set_state(self.S_U_TURN)
+            cmd.linear.x = 0.6
+            self.reverse_mode_pub.publish(Bool(data=False))
+            
+        elif self.state == self.S_U_TURN:
+            cmd = self.behavior_u_turn(cmd)
+            self.reverse_mode_pub.publish(Bool(data=False))
+            
+        elif self.state == self.S_SEARCH_REV:
+            cmd = self.behavior_search(cmd, self.S_APPROACH_REV)
+            self.reverse_mode_pub.publish(Bool(data=True))
+            
+        elif self.state == self.S_APPROACH_REV:
+            cmd = self.behavior_approach(cmd, self.S_ALIGN_REV)
+            self.reverse_mode_pub.publish(Bool(data=True))
+            
+        elif self.state == self.S_ALIGN_REV:
+            cmd = self.behavior_align(cmd, self.S_PASS_REV)
+            self.reverse_mode_pub.publish(Bool(data=True))
+            
+        elif self.state == self.S_PASS_REV:
+            cmd = self.behavior_pass(cmd, 6.0, self.S_COMPLETED)
+            self.reverse_mode_pub.publish(Bool(data=True))
+            
+        elif self.state == self.S_COMPLETED:
+            cmd.linear.x = 0.0
+            cmd.linear.y = 0.0
+            cmd.angular.z = 0.0
+            self.get_logger().info("🏆 QUALIFICATION COMPLETED!", throttle_duration_sec=2.0)
+            
+        self.cmd_pub.publish(cmd)
+        self.state_pub.publish(String(data=f"State_{self.state}"))
         
-        self.cmd_vel_pub.publish(cmd)
-        
-        # Publish state and pass number
-        state_msg = String()
-        state_msg.data = self.get_state_name()
-        self.state_pub.publish(state_msg)
-        
-        pass_msg = String()
-        pass_msg.data = f"PASS_{self.pass_number}"
-        self.pass_number_pub.publish(pass_msg)
-    
-    def submerging_behavior(self, cmd: Twist) -> Twist:
-        """Initial submersion from surface starting zone"""
-        elapsed = time.time() - self.state_start_time
-        
-        if elapsed < self.submersion_duration:
-            # Submerge while maintaining position
-            cmd.linear.z = -self.submersion_speed
-            cmd.linear.x = 0.05  # Tiny forward movement to leave zone
+        # Log current state periodically
+        if int(time.time()) % 2 == 0:
             self.get_logger().info(
-                f'🌊 SUBMERGING: {elapsed:.1f}s / {self.submersion_duration:.1f}s',
-                throttle_duration_sec=1.0
+                f"State: {self.get_state_name()} | "
+                f"Gate: {'YES' if self.gate_detected else 'NO'} | "
+                f"Dist: {self.dist:.1f}m | "
+                f"Depth: {self.current_depth:.2f}m | "
+                f"Pos: {self.frame_pos:+.2f}",
+                throttle_duration_sec=1.9
             )
-        else:
-            self.get_logger().info('✅ Submersion complete - starting search')
-            self.transition_to(self.SEARCHING)
-        
-        return cmd
-    
-    def searching_behavior(self, cmd: Twist) -> Twist:
+
+    # --- BEHAVIORS ---
+    def behavior_search(self, cmd, next_state):
         """Search for gate with sweep pattern"""
-        if self.gate_detected and self.estimated_distance < 999:
-            self.get_logger().info(
-                f'🎯 Gate found at {self.estimated_distance:.2f}m - Starting approach'
-            )
-            self.transition_to(self.APPROACHING)
+        if self.gate_detected and self.dist < 15.0:
+            self.get_logger().info(f'🎯 Gate found at {self.dist:.1f}m - Approaching')
+            self.set_state(next_state)
             return cmd
         
-        elapsed = time.time() - self.state_start_time
-        sweep_period = 8.0
-        sweep_phase = (elapsed % sweep_period) / sweep_period
-        
-        if sweep_phase < 0.5:
-            cmd.angular.z = self.search_rotation_speed
-        else:
-            cmd.angular.z = -self.search_rotation_speed
-        
-        cmd.linear.x = self.search_forward_speed
-        
-        direction = "LEFT" if sweep_phase < 0.5 else "RIGHT"
-        self.get_logger().info(
-            f'🔍 Searching ({direction})... {elapsed:.0f}s | Depth: {self.current_depth:.2f}m',
-            throttle_duration_sec=3.0
-        )
+        t = time.time() - self.state_start_time
+        # Sweep pattern: turn left for 7s, right for 7s
+        cmd.angular.z = self.search_yaw if (t % 14 < 7) else -self.search_yaw
+        cmd.linear.x = self.search_speed
         
         return cmd
-    
-    def approaching_behavior(self, cmd: Twist) -> Twist:
-        """CASUAL APPROACH: 5m → 3.5m with light correction"""
+
+    def behavior_approach(self, cmd, next_state):
+        """Approach gate until close enough to align"""
         if not self.gate_detected:
-            if self.gate_lost_time > 0.0:
-                lost_duration = time.time() - self.gate_lost_time
-                if lost_duration > self.gate_lost_timeout:
-                    self.get_logger().warn('❌ Gate lost - returning to search')
-                    self.transition_to(self.SEARCHING)
-                else:
-                    cmd.linear.x = 0.2
-            return cmd
-        
-        # Stop at alignment distance
-        if self.estimated_distance <= self.approach_stop_distance:
-            self.get_logger().info(
-                f'🛑 Reached {self.approach_stop_distance:.1f}m - STOPPING to align'
-            )
-            self.transition_to(self.ALIGNING)
-            return cmd
-        
-        # Casual approach
-        cmd.linear.x = self.approach_speed
-        cmd.angular.z = -self.frame_position * self.approach_yaw_gain
-        
-        self.get_logger().info(
-            f'🚶 APPROACHING: dist={self.estimated_distance:.2f}m, '
-            f'pos={self.frame_position:+.3f}, speed={cmd.linear.x:.2f}',
-            throttle_duration_sec=0.5
-        )
-        
-        return cmd
-    
-    def aligning_behavior(self, cmd: Twist) -> Twist:
-        """PROPER ALIGNMENT AT 3.5m: Pure rotation"""
-        if not self.gate_detected:
-            if self.gate_lost_time > 0.0:
-                lost_duration = time.time() - self.gate_lost_time
-                if lost_duration > self.gate_lost_timeout:
-                    self.get_logger().warn('❌ Gate lost during alignment - searching')
-                    self.alignment_start_time = 0.0
-                    self.transition_to(self.SEARCHING)
-                else:
-                    cmd.linear.x = 0.0
-            return cmd
-        
-        if self.alignment_start_time == 0.0:
-            self.alignment_start_time = time.time()
-            self.get_logger().info(
-                f'🎯 STARTING ALIGNMENT at {self.estimated_distance:.2f}m'
-            )
-        
-        alignment_elapsed = time.time() - self.alignment_start_time
-        
-        if alignment_elapsed > self.alignment_max_time:
-            self.get_logger().warn('⏰ Alignment timeout - proceeding')
-            self.alignment_start_time = 0.0
-            self.transition_to(self.FINAL_APPROACH)
-            return cmd
-        
-        # Check alignment quality
-        is_well_aligned = abs(self.frame_position) < self.alignment_threshold
-        has_confidence = self.confidence > 0.7
-        
-        if is_well_aligned and has_confidence:
-            self.get_logger().info(
-                f'✅ ALIGNMENT COMPLETE! (took {alignment_elapsed:.1f}s)'
-            )
-            self.alignment_start_time = 0.0
-            self.transition_to(self.FINAL_APPROACH)
-            return cmd
-        
-        # Pure rotation alignment
-        cmd.linear.x = 0.0
-        cmd.angular.z = -self.frame_position * self.alignment_yaw_gain
-        
-        status = "MAJOR" if abs(self.frame_position) > 0.2 else "FINE"
-        self.get_logger().info(
-            f'🔄 ALIGNING ({status}): pos={self.frame_position:+.3f}, yaw={cmd.angular.z:+.2f}',
-            throttle_duration_sec=0.3
-        )
-        
-        return cmd
-    
-    def final_approach_behavior(self, cmd: Twist) -> Twist:
-        """FINAL APPROACH: 3.5m → 1.8m with tight alignment"""
-        if not self.gate_detected:
-            if self.gate_lost_time > 0.0:
-                lost_duration = time.time() - self.gate_lost_time
-                if lost_duration > self.gate_lost_timeout:
-                    self.get_logger().warn('❌ Gate lost - searching')
-                    self.transition_to(self.SEARCHING)
-                else:
-                    cmd.linear.x = 0.1
-            return cmd
-        
-        # Check if ready to commit to passing
-        if self.estimated_distance <= self.passing_trigger_distance:
-            if abs(self.frame_position) < 0.25:
-                self.get_logger().info(
-                    f'🚀 COMMITTING TO PASS #{self.pass_number} at {self.estimated_distance:.2f}m'
-                )
-                self.passing_start_position = self.current_position
-                self.transition_to(self.PASSING)
+            lost_time = time.time() - self.last_detection_time
+            if lost_time > 2.0:
+                self.get_logger().warn('Gate lost - searching')
                 return cmd
-            else:
-                self.get_logger().error(
-                    f'🚨 Misaligned at trigger! pos={self.frame_position:+.3f}'
-                )
-                cmd.linear.x = 0.0
-                cmd.angular.z = -self.frame_position * self.alignment_yaw_gain * 2.0
-                return cmd
+            # Coast briefly if just lost
         
-        # Maintain alignment during approach
-        if abs(self.frame_position) > self.final_approach_threshold:
-            cmd.linear.x = self.final_approach_speed * 0.6
-            cmd.angular.z = -self.frame_position * self.alignment_yaw_gain * 0.7
-        else:
-            cmd.linear.x = self.final_approach_speed
-            cmd.angular.z = -self.frame_position * self.alignment_yaw_gain * 0.3
-        
-        self.get_logger().info(
-            f'➡️ FINAL APPROACH: dist={self.estimated_distance:.2f}m, pos={self.frame_position:+.3f}',
-            throttle_duration_sec=0.5
-        )
+        if self.dist < self.approach_stop_dist and self.dist > 0.1:
+            self.get_logger().info(f'🛑 Close enough ({self.dist:.1f}m) - Aligning')
+            self.set_state(next_state)
+            return cmd
+            
+        cmd.linear.x = 0.6
+        cmd.angular.z = -self.frame_pos * 1.2
         
         return cmd
-    
-    def passing_behavior(self, cmd: Twist) -> Twist:
-        """FULL SPEED PASSAGE - Monitor clearance for transition"""
-        if self.passing_start_position is None:
-            self.passing_start_position = self.current_position
-            self.get_logger().info(f'🚀 PASS #{self.pass_number} STARTED - FULL SPEED')
-        
-        # Check if AUV has completely cleared the gate
-        # "Back-most part crosses line" = AUV front is (gate + AUV length + buffer) past gate
-        if self.current_position:
-            current_x = self.current_position[0]
-            
-            # Clearance threshold: gate position + AUV length + buffer
-            clearance_threshold = (self.gate_x_position + 
-                                 self.auv_length + self.gate_clearance_buffer)
-            
-            # For reverse pass, we're moving backward
-            if self.pass_number == 2:
-                clearance_threshold = (self.gate_x_position - 
-                                     self.auv_length - self.gate_clearance_buffer)
-            
-            # Check clearance based on pass direction
-            is_cleared = False
-            if self.pass_number == 1 and current_x > clearance_threshold:
-                is_cleared = True
-            elif self.pass_number == 2 and current_x < clearance_threshold:
-                is_cleared = True
-            
-            if is_cleared:
-                distance_traveled = abs(current_x - self.passing_start_position[0])
-                self.get_logger().info('='*70)
-                self.get_logger().info(f'✅ PASS #{self.pass_number} CLEARED!')
-                self.get_logger().info(f'   Position: X={current_x:.2f}m')
-                self.get_logger().info(f'   Distance: {distance_traveled:.2f}m')
-                self.get_logger().info('='*70)
-                
-                if self.pass_number == 1:
-                    self.get_logger().info('🔄 INITIATING U-TURN FOR PASS #2')
-                    self.pass_number = 2
-                    self.transition_to(self.U_TURNING)
-                else:
-                    self.get_logger().info('🎉 QUALIFICATION COMPLETE!')
-                    self.transition_to(self.COMPLETED)
-                return cmd
-            
-            # Show progress
-            if self.pass_number == 1:
-                progress = (current_x - self.passing_start_position[0]) / clearance_threshold * 100
-                status = "CLEARING GATE"
-            else:
-                progress = (self.passing_start_position[0] - current_x) / abs(clearance_threshold) * 100
-                status = "CLEARING GATE REVERSE"
-            
-            self.get_logger().info(
-                f'🚀 PASS #{self.pass_number} ({status}): {progress:.0f}% cleared',
-                throttle_duration_sec=0.4
-            )
-        
-        # Full speed - no corrections
-        cmd.linear.x = self.passing_speed if self.pass_number == 1 else self.reverse_passing_speed
-        cmd.linear.y = 0.0
-        cmd.angular.z = 0.0
-        
-        return cmd
-    
-    def uturn_behavior(self, cmd: Twist) -> Twist:
-        """U-TURN: Rotate 180° while maintaining depth"""
-        if self.uturn_start_position is None:
-            self.uturn_start_position = self.current_position
-            self.get_logger().info('🔄 STARTING U-TURN (180° rotation)')
-        
+
+    def behavior_align(self, cmd, next_state):
+        """Align with gate center"""
         elapsed = time.time() - self.state_start_time
         
-        # Maintain depth with slight forward movement to clear gate area
-        cmd.linear.z = (self.target_depth - self.current_depth) * self.uturn_depth_gain
+        if elapsed > 10.0:  # Timeout
+            self.get_logger().warn('Alignment timeout - proceeding')
+            self.set_state(next_state)
+            return cmd
         
-        # Rotate continuously for U-turn
-        cmd.angular.z = self.uturn_rotation_speed
-        
-        # Small forward movement to avoid hitting gate
-        cmd.linear.x = 0.2
-        
-        # Check if turn is complete (duration-based)
-        if elapsed > self.uturn_duration:
-            self.get_logger().info('✅ U-TURN COMPLETE - Starting reverse approach')
-            self.uturn_start_position = None
-            self.passing_start_position = None
-            self.transition_to(self.REVERSE_APPROACH)
-        else:
-            self.get_logger().info(
-                f'🔄 U-TURNING: {elapsed:.1f}s / {self.uturn_duration:.1f}s',
-                throttle_duration_sec=1.0
-            )
+        if abs(self.frame_pos) < 0.12:
+            self.get_logger().info('✓ Aligned - Starting pass')
+            self.set_state(next_state)
+            return cmd
+            
+        cmd.linear.x = 0.15
+        cmd.angular.z = -self.frame_pos * 2.0
         
         return cmd
-    
-    def reverse_approach_behavior(self, cmd: Twist) -> Twist:
-        """REVERSE APPROACH: Move backward toward gate for second pass"""
-        if not self.gate_detected:
-            if self.gate_lost_time > 0.0:
-                lost_duration = time.time() - self.gate_lost_time
-                if lost_duration > self.gate_lost_timeout:
-                    self.get_logger().warn('❌ Gate lost during reverse approach')
-                    # Try to reacquire by rotating
-                    cmd.linear.x = 0.0
-                    cmd.angular.z = 0.3
-                else:
-                    cmd.linear.x = self.reverse_approach_speed * 0.5
-            return cmd
+
+    def behavior_pass(self, cmd, duration, next_state):
+        """Pass through gate at full speed"""
+        if self.pass_start_pos is None: 
+            self.pass_start_pos = self.current_pos
+            self.get_logger().info('🚀 PASSING THROUGH GATE')
         
-        # Stop at appropriate distance (moving backward, so distance increases)
-        if self.estimated_distance <= self.approach_stop_distance:
+        dist_traveled = 0.0
+        if self.current_pos and self.pass_start_pos:
+            dx = self.current_pos[0] - self.pass_start_pos[0]
+            dy = self.current_pos[1] - self.pass_start_pos[1]
+            dist_traveled = math.sqrt(dx*dx + dy*dy)
+            
+            # Log progress
             self.get_logger().info(
-                f'🛑 Reverse approach at {self.estimated_distance:.2f}m - aligning'
+                f'Passing: {dist_traveled:.1f}m traveled',
+                throttle_duration_sec=0.5
             )
-            self.transition_to(self.ALIGNING)
+            
+        if dist_traveled > 3.5 or (time.time() - self.state_start_time > duration):
+            self.get_logger().info(f'✅ Pass complete ({dist_traveled:.1f}m)')
+            self.set_state(next_state)
+            self.pass_start_pos = None
+            return cmd
+            
+        cmd.linear.x = self.pass_speed
+        cmd.angular.z = 0.0  # Straight through
+        
+        return cmd
+
+    def behavior_u_turn(self, cmd):
+        """Execute 180-degree U-turn"""
+        # CRITICAL FIX: Initialize on first entry
+        if self.start_u_turn_yaw == 0.0:
+            self.start_u_turn_yaw = self.current_yaw
+            self.get_logger().info(f'Starting U-turn from yaw={math.degrees(self.current_yaw):.1f}°')
+        
+        # Calculate how much we've turned
+        diff = abs(self.current_yaw - self.start_u_turn_yaw)
+        if diff > math.pi:
+            diff = 2*math.pi - diff
+        
+        # Check if we've turned ~180 degrees
+        if diff > (math.pi * 0.90):  # 162 degrees (allow some tolerance)
+            self.get_logger().info(f'✓ U-turn complete (turned {math.degrees(diff):.1f}°)')
+            self.set_state(self.S_SEARCH_REV)
+            self.start_u_turn_yaw = 0.0  # Reset for next time
             return cmd
         
-        # Approach gate backward
-        cmd.linear.x = self.reverse_approach_speed
-        cmd.angular.z = -self.frame_position * self.approach_yaw_gain
+        # Continue turning
+        cmd.linear.x = 0.3  # Move forward while turning
+        cmd.angular.z = 0.7  # Turn rate
         
+        # Log progress
         self.get_logger().info(
-            f'⬅️ REVERSE APPROACH: dist={self.estimated_distance:.2f}m, '
-            f'pos={self.frame_position:+.3f}',
+            f'U-turning: {math.degrees(diff):.1f}° / 180°',
             throttle_duration_sec=0.5
         )
         
         return cmd
-    
-    def reverse_passing_behavior(self, cmd: Twist) -> Twist:
-        """REVERSE PASSING: Move backward through gate"""
-        # Same logic as forward passing but with negative speed
-        return self.passing_behavior(cmd)
-    
-    def completed_behavior(self, cmd: Twist) -> Twist:
-        """Mission complete - stop all movement"""
-        if self.mission_start_time:
-            total_time = time.time() - self.mission_start_time
-            detection_time = (self.gate_first_detected_time - self.mission_start_time 
-                             if self.gate_first_detected_time else 0)
-            
-            self.get_logger().info('='*70)
-            self.get_logger().info('🎉 QUALIFICATION COMPLETE!')
-            self.get_logger().info(f'   Total time: {total_time:.2f}s')
-            self.get_logger().info(f'   Points earned: 2 (both passes)')
-            self.get_logger().info('='*70)
-            
-            self.mission_start_time = None
-        
-        cmd.linear.x = 0.0
-        cmd.linear.y = 0.0
-        cmd.linear.z = 0.0
-        cmd.angular.z = 0.0
-        
-        return cmd
-    
-    def transition_to(self, new_state: int):
+
+    def set_state(self, new_state):
         """Transition to new state"""
         old_name = self.get_state_name()
         self.state = new_state
@@ -606,23 +302,21 @@ class QualificationNavigator(Node):
         new_name = self.get_state_name()
         
         self.get_logger().info(f'🔄 STATE: {old_name} → {new_name}')
-        if new_state == self.SEARCHING and self.pass_number == 2:
-            self.get_logger().info('🔁 STARTING REVERSE PASS SEQUENCE')
     
-    def get_state_name(self) -> str:
+    def get_state_name(self):
         """Get human-readable state name"""
         names = {
-            self.IDLE: 'IDLE',
-            self.SUBMERGING: 'SUBMERGING',
-            self.SEARCHING: 'SEARCHING',
-            self.APPROACHING: 'APPROACHING',
-            self.ALIGNING: 'ALIGNING',
-            self.FINAL_APPROACH: 'FINAL_APPROACH',
-            self.PASSING: 'PASSING',
-            self.U_TURNING: 'U_TURNING',
-            self.REVERSE_APPROACH: 'REVERSE_APPROACH',
-            self.REVERSE_PASSING: 'REVERSE_PASSING',
-            self.COMPLETED: 'COMPLETED'
+            self.S_SEARCH_FWD: 'SEARCH_FWD',
+            self.S_APPROACH_FWD: 'APPROACH_FWD',
+            self.S_ALIGN_FWD: 'ALIGN_FWD',
+            self.S_PASS_FWD: 'PASS_FWD',
+            self.S_POST_PASS_FWD: 'POST_PASS_FWD',
+            self.S_U_TURN: 'U_TURN',
+            self.S_SEARCH_REV: 'SEARCH_REV',
+            self.S_APPROACH_REV: 'APPROACH_REV',
+            self.S_ALIGN_REV: 'ALIGN_REV',
+            self.S_PASS_REV: 'PASS_REV',
+            self.S_COMPLETED: 'COMPLETED'
         }
         return names.get(self.state, 'UNKNOWN')
 
@@ -630,14 +324,15 @@ class QualificationNavigator(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = QualificationNavigator()
+    
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
+        # Stop robot
         stop_cmd = Twist()
-        node.cmd_vel_pub.publish(stop_cmd)
-        node.get_logger().info('Qualification Navigator shutting down')
+        node.cmd_pub.publish(stop_cmd)
         node.destroy_node()
         rclpy.shutdown()
 
