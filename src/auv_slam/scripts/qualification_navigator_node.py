@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
-QUALIFICATION NAVIGATOR (FINAL)
-- Logic: Search -> Approach -> Align(XYZ) -> Pass -> U-Turn -> Pass Again
-- Fixes: Depth Oscillation (Deadband), Floor Collisions
+SAUVC QUALIFICATION NAVIGATOR - FIXED DEPTH CONTROL
+Complete qualification task with stable depth control:
+1. Maintain constant depth during search/approach
+2. Only adjust height when within 3m for alignment
+3. U-turn and repeat for second pass
 """
 
 import rclpy
@@ -13,245 +15,568 @@ from nav_msgs.msg import Odometry
 import time
 import math
 
+
 class QualificationNavigator(Node):
     def __init__(self):
         super().__init__('qualification_navigator_node')
         
-        # --- CONFIGURATION ---
-        self.declare_parameter('target_depth', -0.8)
-        self.safe_depth = self.get_parameter('target_depth').value
+        # State machine
+        self.IDLE = 0
+        self.SEARCHING = 1
+        self.APPROACHING = 2
+        self.ALIGNING = 3
+        self.FINAL_APPROACH = 4
+        self.PASSING = 5
+        self.UTURN = 6
+        self.COMPLETED = 7
         
-        # Camera Parameters (for Visual Depth Alignment)
-        self.img_height = 600
-        self.img_center_y = self.img_height // 2
-        
-        # PID Depth Gains (Tuned for Stability)
-        self.kp_depth = 1.0
-        self.kd_depth = 0.5
-        self.depth_deadband = 0.05  # Ignore errors smaller than 5cm
-        
-        # Mission Parameters
-        self.align_dist = 3.0       # Start aligning height at 3m
-        self.pass_dist = 1.2        # Commit to pass at 1.2m
-        
-        # --- STATE MACHINE ---
-        self.S_SEARCH = 0
-        self.S_APPROACH = 1
-        self.S_ALIGN = 2
-        self.S_FINAL = 3
-        self.S_PASS = 4
-        self.S_UTURN = 5
-        self.S_COMPLETE = 6
-        
-        self.state = self.S_SEARCH
+        self.state = self.SEARCHING
         self.passes_completed = 0
-        self.target_depth_dynamic = self.safe_depth
         
-        # Variables
+        # Parameters
+        self.declare_parameter('target_depth', -0.8)
+        self.declare_parameter('depth_correction_gain', 2.0)
+        
+        # Search parameters
+        self.declare_parameter('search_forward_speed', 0.4)
+        self.declare_parameter('search_rotation_speed', 0.2)
+        
+        # Approach parameters
+        self.declare_parameter('approach_start_distance', 10.0)
+        self.declare_parameter('approach_stop_distance', 3.0)
+        self.declare_parameter('approach_speed', 0.6)
+        self.declare_parameter('approach_yaw_gain', 1.0)
+        
+        # Alignment parameters
+        self.declare_parameter('alignment_distance', 3.0)
+        self.declare_parameter('alignment_threshold', 0.10)
+        self.declare_parameter('alignment_max_time', 20.0)
+        self.declare_parameter('alignment_yaw_gain', 3.0)
+        
+        # Final approach parameters
+        self.declare_parameter('final_approach_start', 3.0)
+        self.declare_parameter('final_approach_speed', 0.5)
+        self.declare_parameter('final_approach_threshold', 0.15)
+        
+        # Passing parameters
+        self.declare_parameter('passing_trigger_distance', 1.2)
+        self.declare_parameter('passing_speed', 1.0)
+        self.declare_parameter('passing_duration', 7.0)
+        self.declare_parameter('gate_width', 1.5)
+        
+        # U-turn parameters
+        self.declare_parameter('uturn_rotation_speed', 0.6)
+        self.declare_parameter('uturn_forward_speed', 0.2)
+        
+        # Gate position
+        self.declare_parameter('gate_x_position', 0.0)
+        self.declare_parameter('gate_clearance_distance', 0.5)
+        
+        self.target_depth = self.get_parameter('target_depth').value
+        self.depth_gain = self.get_parameter('depth_correction_gain').value
+        self.search_forward_speed = self.get_parameter('search_forward_speed').value
+        self.search_rotation_speed = self.get_parameter('search_rotation_speed').value
+        
+        self.approach_start_distance = self.get_parameter('approach_start_distance').value
+        self.approach_stop_distance = self.get_parameter('approach_stop_distance').value
+        self.approach_speed = self.get_parameter('approach_speed').value
+        self.approach_yaw_gain = self.get_parameter('approach_yaw_gain').value
+        
+        self.alignment_distance = self.get_parameter('alignment_distance').value
+        self.alignment_threshold = self.get_parameter('alignment_threshold').value
+        self.alignment_max_time = self.get_parameter('alignment_max_time').value
+        self.alignment_yaw_gain = self.get_parameter('alignment_yaw_gain').value
+        
+        self.final_approach_start = self.get_parameter('final_approach_start').value
+        self.final_approach_speed = self.get_parameter('final_approach_speed').value
+        self.final_approach_threshold = self.get_parameter('final_approach_threshold').value
+        
+        self.passing_trigger_distance = self.get_parameter('passing_trigger_distance').value
+        self.passing_speed = self.get_parameter('passing_speed').value
+        self.passing_duration = self.get_parameter('passing_duration').value
+        self.gate_width = self.get_parameter('gate_width').value
+        
+        self.uturn_rotation_speed = self.get_parameter('uturn_rotation_speed').value
+        self.uturn_forward_speed = self.get_parameter('uturn_forward_speed').value
+        
+        self.gate_x_position = self.get_parameter('gate_x_position').value
+        self.gate_clearance_distance = self.get_parameter('gate_clearance_distance').value
+        
+        # State variables
         self.gate_detected = False
-        self.gate_pos_x = 0.0       # -1 to 1 (Frame Position)
-        self.gate_center_y = 0.0    # Pixel Y
-        self.dist = 999.0
+        self.partial_gate = False
+        self.alignment_error = 0.0
+        self.estimated_distance = 999.0
         self.current_depth = 0.0
-        self.current_yaw = 0.0
-        self.start_yaw = 0.0
+        self.frame_position = 0.0
+        self.confidence = 0.0
+        self.gate_center_y = 0.0  # For visual height alignment
         
-        self.last_time = time.time()
+        # Position tracking
+        self.current_position = None
+        self.current_yaw = 0.0
+        self.passing_start_position = None
+        self.uturn_start_yaw = 0.0
+        
+        # Timing
+        self.gate_lost_time = 0.0
+        self.gate_lost_timeout = 3.0
+        self.alignment_start_time = 0.0
         self.state_start_time = time.time()
         
-        # --- ROS INTERFACE ---
-        self.cmd_pub = self.create_publisher(Twist, '/rp2040/cmd_vel', 10)
-        self.state_pub = self.create_publisher(String, '/mission/state', 10)
+        self.mission_start_time = time.time()
+        self.pass1_complete_time = None
+        self.pass2_complete_time = None
         
-        self.create_subscription(Bool, '/gate/detected', self.cb_detected, 10)
-        self.create_subscription(Float32, '/gate/frame_position', self.cb_frame_x, 10)
-        self.create_subscription(Point, '/gate/center_point', self.cb_center_point, 10)
-        self.create_subscription(Float32, '/gate/estimated_distance', self.cb_dist, 10)
-        self.create_subscription(Odometry, '/ground_truth/odom', self.cb_odom, 10)
+        # Camera parameters for visual depth alignment
+        self.img_height = 960  # From camera specs
+        self.img_center_y = self.img_height / 2
         
-        self.create_timer(0.05, self.control_loop) # 20Hz
+        # Subscriptions
+        self.gate_detected_sub = self.create_subscription(
+            Bool, '/gate/detected', self.gate_detected_callback, 10)
+        self.alignment_sub = self.create_subscription(
+            Float32, '/gate/alignment_error', self.alignment_callback, 10)
+        self.distance_sub = self.create_subscription(
+            Float32, '/gate/estimated_distance', self.distance_callback, 10)
+        self.odom_sub = self.create_subscription(
+            Odometry, '/ground_truth/odom', self.odom_callback, 10)
+        self.frame_position_sub = self.create_subscription(
+            Float32, '/gate/frame_position', self.frame_position_callback, 10)
+        self.partial_gate_sub = self.create_subscription(
+            Bool, '/gate/partial_detection', self.partial_gate_callback, 10)
+        self.confidence_sub = self.create_subscription(
+            Float32, '/gate/detection_confidence', self.confidence_callback, 10)
+        self.gate_center_sub = self.create_subscription(
+            Point, '/gate/center_point', self.gate_center_callback, 10)
         
-        self.get_logger().info('🚀 NAVIGATOR READY: 2-Pass Logic + Stable Depth')
-
-    # --- CALLBACKS ---
-    def cb_detected(self, msg): self.gate_detected = msg.data
-    def cb_frame_x(self, msg): self.gate_pos_x = msg.data
-    def cb_dist(self, msg): self.dist = msg.data
-    def cb_center_point(self, msg): 
-        # msg.y is the pixel height (0 is top, 600 is bottom)
+        # Publishers
+        self.cmd_vel_pub = self.create_publisher(Twist, '/rp2040/cmd_vel', 10)
+        self.state_pub = self.create_publisher(String, '/gate/navigation_state', 10)
+        self.reverse_mode_pub = self.create_publisher(Bool, '/mission/reverse_mode', 10)
+        
+        self.control_timer = self.create_timer(0.05, self.control_loop)
+        
+        self.get_logger().info('='*70)
+        self.get_logger().info('🏆 QUALIFICATION NAVIGATOR - STABLE DEPTH CONTROL')
+        self.get_logger().info('='*70)
+        self.get_logger().info('   Depth strategy:')
+        self.get_logger().info('   - Constant depth during search/approach')
+        self.get_logger().info('   - Height adjustment ONLY within 3m for alignment')
+        self.get_logger().info('='*70)
+    
+    def gate_detected_callback(self, msg: Bool):
+        was_detected = self.gate_detected
+        self.gate_detected = msg.data
+        
+        if not was_detected and self.gate_detected:
+            self.gate_lost_time = 0.0
+        elif was_detected and not self.gate_detected:
+            self.gate_lost_time = time.time()
+    
+    def frame_position_callback(self, msg: Float32):
+        self.frame_position = msg.data
+    
+    def partial_gate_callback(self, msg: Bool):
+        self.partial_gate = msg.data
+    
+    def confidence_callback(self, msg: Float32):
+        self.confidence = msg.data
+    
+    def alignment_callback(self, msg: Float32):
+        self.alignment_error = msg.data
+    
+    def distance_callback(self, msg: Float32):
+        self.estimated_distance = msg.data
+    
+    def gate_center_callback(self, msg: Point):
         self.gate_center_y = msg.y
-        
-    def cb_odom(self, msg):
+    
+    def odom_callback(self, msg: Odometry):
         self.current_depth = msg.pose.pose.position.z
-        # Extract Yaw
+        self.current_position = (
+            msg.pose.pose.position.x,
+            msg.pose.pose.position.y,
+            msg.pose.pose.position.z
+        )
+        
+        # Extract yaw from quaternion
         q = msg.pose.pose.orientation
         siny_cosp = 2 * (q.w * q.z + q.x * q.y)
         cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
         self.current_yaw = math.atan2(siny_cosp, cosy_cosp)
-
-    # --- MAIN LOOP ---
+    
     def control_loop(self):
         cmd = Twist()
         
-        # 1. DEPTH CONTROL (Always Active)
-        # ---------------------------------------------------
-        # Decide Target Depth
-        target = self.safe_depth
+        # ============================================================
+        # DEPTH CONTROL - CRITICAL FIX
+        # ============================================================
         
-        # "Adjust height" logic: Only when close and aligning
-        if self.state in [self.S_ALIGN, self.S_FINAL] and self.gate_detected:
-            # Visual Servo: Map pixel error to depth adjustment
-            # Center is 300. If y=400 (lower), we need to go DOWN (more negative Z)
-            pixel_error = (self.gate_center_y - self.img_center_y)
+        # Decide target depth based on state and distance
+        target_depth = self.target_depth
+        
+        # ONLY adjust height when close enough AND in alignment states
+        close_enough = self.estimated_distance < 3.0
+        in_alignment_state = self.state in [self.ALIGNING, self.FINAL_APPROACH]
+        
+        if close_enough and in_alignment_state and self.gate_detected:
+            # VISUAL SERVO: Adjust depth based on gate center pixel position
+            pixel_error = self.gate_center_y - self.img_center_y
             
-            # Simple P-control for target adjustment
             # Scale: 100 pixels off = 0.1m adjustment
-            adjustment = -(pixel_error / 1000.0) 
+            # Negative pixel_error (gate too high) → need to go UP (less negative Z)
+            # Positive pixel_error (gate too low) → need to go DOWN (more negative Z)
+            depth_adjustment = (pixel_error / 1000.0)
             
-            # Update dynamic target smoothly
-            self.target_depth_dynamic += adjustment * 0.1
+            # Apply adjustment smoothly with limits
+            target_depth = self.target_depth + depth_adjustment
+            target_depth = max(-1.2, min(-0.4, target_depth))
             
-            # Safety Clamp (Don't go too deep or surface)
-            self.target_depth_dynamic = max(-1.2, min(-0.4, self.target_depth_dynamic))
-            target = self.target_depth_dynamic
+            self.get_logger().info(
+                f'📐 Height adjust: pixel_err={pixel_error:.0f}, '
+                f'target_depth={target_depth:.2f}m',
+                throttle_duration_sec=1.0
+            )
         else:
-            # Reset to safe depth when searching/moving fast
-            self.target_depth_dynamic = self.safe_depth
+            # Maintain constant depth - NO adjustment
+            target_depth = self.target_depth
         
-        # Calculate Thrust with Deadband
-        error = target - self.current_depth
-        if abs(error) < self.depth_deadband:
-            cmd.linear.z = 0.0 # Stop jitter
+        # Calculate depth error
+        depth_error = target_depth - self.current_depth
+        
+        # PROPER DEADBAND to prevent oscillation
+        depth_deadband = 0.15  # 15cm deadband
+        
+        if abs(depth_error) < depth_deadband:
+            # Within deadband - stop depth control
+            cmd.linear.z = 0.0
+        elif abs(depth_error) < 0.5:
+            # Small error - gentle correction
+            cmd.linear.z = depth_error * 0.8
+            cmd.linear.z = max(-0.4, min(cmd.linear.z, 0.4))
         else:
-            cmd.linear.z = error * self.kp_depth
-            cmd.linear.z = max(-0.5, min(0.5, cmd.linear.z)) # Limit speed
-            
-        # 2. STATE MACHINE
-        # ---------------------------------------------------
-        if self.state == self.S_SEARCH:
-            cmd = self.behavior_search(cmd)
-            
-        elif self.state == self.S_APPROACH:
-            cmd = self.behavior_approach(cmd)
-            
-        elif self.state == self.S_ALIGN:
-            cmd = self.behavior_align(cmd)
-            
-        elif self.state == self.S_FINAL:
-            cmd = self.behavior_final(cmd)
-            
-        elif self.state == self.S_PASS:
-            cmd = self.behavior_pass(cmd)
-            
-        elif self.state == self.S_UTURN:
-            cmd = self.behavior_uturn(cmd)
-            
-        elif self.state == self.S_COMPLETE:
-            cmd.linear.x = 0.0
-            cmd.angular.z = 0.0
-            self.get_logger().info("🏆 MISSION ACCOMPLISHED", throttle_duration_sec=2)
-
-        self.cmd_pub.publish(cmd)
+            # Large error - stronger correction
+            cmd.linear.z = depth_error * 1.2
+            cmd.linear.z = max(-1.0, min(cmd.linear.z, 1.0))
         
-        status = f"State:{self.state} | Pass:{self.passes_completed} | Z_Tgt:{target:.2f}"
-        self.state_pub.publish(String(data=status))
-
-    # --- BEHAVIORS ---
+        # ============================================================
+        # STATE MACHINE
+        # ============================================================
+        
+        if self.state == self.SEARCHING:
+            cmd = self.searching_behavior(cmd)
+        elif self.state == self.APPROACHING:
+            cmd = self.approaching_behavior(cmd)
+        elif self.state == self.ALIGNING:
+            cmd = self.aligning_behavior(cmd)
+        elif self.state == self.FINAL_APPROACH:
+            cmd = self.final_approach_behavior(cmd)
+        elif self.state == self.PASSING:
+            cmd = self.passing_behavior(cmd)
+        elif self.state == self.UTURN:
+            cmd = self.uturn_behavior(cmd)
+        elif self.state == self.COMPLETED:
+            cmd = self.completed_behavior(cmd)
+        
+        self.cmd_vel_pub.publish(cmd)
+        
+        # Publish state and reverse mode
+        state_msg = String()
+        state_msg.data = self.get_state_name()
+        self.state_pub.publish(state_msg)
+        
+        reverse_mode = Bool()
+        reverse_mode.data = (self.passes_completed == 1)
+        self.reverse_mode_pub.publish(reverse_mode)
     
-    def behavior_search(self, cmd):
-        """Find the gate. Maintain Safe Depth."""
-        if self.gate_detected and (self.dist < 15.0):
-            self.get_logger().info("🎯 Gate Detected! Approach.")
-            self.transition(self.S_APPROACH)
+    def searching_behavior(self, cmd: Twist) -> Twist:
+        """Search for gate - CONSTANT DEPTH"""
+        if self.gate_detected and self.estimated_distance < 999:
+            pass_num = self.passes_completed + 1
+            self.get_logger().info(
+                f'🎯 Gate found (PASS {pass_num}) at {self.estimated_distance:.2f}m'
+            )
+            self.transition_to(self.APPROACHING)
             return cmd
-            
-        # Search Pattern
-        t = time.time() - self.state_start_time
-        cmd.angular.z = 0.3 if (t % 10 < 5) else -0.3
-        cmd.linear.x = 0.0 # Don't move forward blindly
-        return cmd
-
-    def behavior_approach(self, cmd):
-        """Move to 3m mark. Hold Safe Depth."""
-        if self.dist <= self.align_dist:
-            self.get_logger().info(f"🛑 3m Reached ({self.dist:.1f}m). Starting Alignment.")
-            self.transition(self.S_ALIGN)
-            return cmd
-            
-        if not self.gate_detected: 
-            # If lost briefly, stop and wait
-            return cmd 
-            
-        cmd.linear.x = 0.5
-        cmd.angular.z = -self.gate_pos_x * 0.8 # Simple Yaw correction
-        return cmd
-
-    def behavior_align(self, cmd):
-        """Stop at 3m. Align Yaw AND Depth."""
-        # 1. Check Alignment Quality
-        yaw_aligned = abs(self.gate_pos_x) < 0.1
-        depth_aligned = abs(self.gate_center_y - self.img_center_y) < 50 # 50px tolerance
         
-        if yaw_aligned and depth_aligned:
-            self.get_logger().info("✅ Aligned (XYZ). Starting Final Approach.")
-            self.transition(self.S_FINAL)
-            return cmd
-            
-        # 2. Align Actions
-        cmd.linear.x = 0.0 # STOP forward motion
-        cmd.angular.z = -self.gate_pos_x * 1.0 # Align Yaw
-        
-        # Depth is handled in main loop (Visual Servo)
-        return cmd
-
-    def behavior_final(self, cmd):
-        """Slow approach 3m -> 1.2m while keeping alignment."""
-        if self.dist < self.pass_dist:
-            self.get_logger().info("🚀 Committing to PASS!")
-            self.transition(self.S_PASS)
-            return cmd
-            
-        cmd.linear.x = 0.4
-        cmd.angular.z = -self.gate_pos_x * 1.0
-        return cmd
-
-    def behavior_pass(self, cmd):
-        """Blind forward burst."""
         elapsed = time.time() - self.state_start_time
-        duration = 7.0 # Seconds to clear gate
+        sweep_period = 10.0
+        sweep_phase = (elapsed % sweep_period) / sweep_period
         
-        if elapsed > duration:
-            self.passes_completed += 1
-            if self.passes_completed < 2:
-                self.get_logger().info("🔄 Pass 1 Complete. Starting U-Turn.")
-                self.start_yaw = self.current_yaw
-                self.transition(self.S_UTURN)
+        if sweep_phase < 0.5:
+            cmd.angular.z = self.search_rotation_speed
+        else:
+            cmd.angular.z = -self.search_rotation_speed
+        
+        cmd.linear.x = self.search_forward_speed
+        
+        if int(elapsed) % 3 == 0:
+            direction = "LEFT" if sweep_phase < 0.5 else "RIGHT"
+            pass_num = self.passes_completed + 1
+            self.get_logger().info(
+                f'🔍 Searching (PASS {pass_num}, {direction})... {elapsed:.0f}s',
+                throttle_duration_sec=2.9
+            )
+        
+        return cmd
+    
+    def approaching_behavior(self, cmd: Twist) -> Twist:
+        """Approach gate - CONSTANT DEPTH until 3m"""
+        if not self.gate_detected:
+            if self.gate_lost_time > 0.0:
+                lost_duration = time.time() - self.gate_lost_time
+                if lost_duration > self.gate_lost_timeout:
+                    self.get_logger().warn('❌ Gate lost - returning to search')
+                    self.transition_to(self.SEARCHING)
+                else:
+                    cmd.linear.x = 0.2
+                    cmd.angular.z = 0.0
+            return cmd
+        
+        # Stop at 3m to align
+        if self.estimated_distance <= self.approach_stop_distance:
+            self.get_logger().info(
+                f'🛑 Reached {self.approach_stop_distance}m - ALIGNING'
+            )
+            self.transition_to(self.ALIGNING)
+            return cmd
+        
+        # Casual approach with light correction
+        cmd.linear.x = self.approach_speed
+        cmd.angular.z = -self.frame_position * self.approach_yaw_gain
+        
+        self.get_logger().info(
+            f'🚶 APPROACHING: dist={self.estimated_distance:.2f}m, '
+            f'depth={self.current_depth:.2f}m (STABLE)',
+            throttle_duration_sec=0.5
+        )
+        
+        return cmd
+    
+    def aligning_behavior(self, cmd: Twist) -> Twist:
+        """Align at 3m - NOW adjusting height"""
+        if not self.gate_detected:
+            if self.gate_lost_time > 0.0:
+                lost_duration = time.time() - self.gate_lost_time
+                if lost_duration > self.gate_lost_timeout:
+                    self.get_logger().warn('❌ Gate lost - returning to search')
+                    self.alignment_start_time = 0.0
+                    self.transition_to(self.SEARCHING)
+                else:
+                    cmd.linear.x = 0.0
+                    cmd.angular.z = 0.0
+            return cmd
+        
+        # Initialize alignment timer
+        if self.alignment_start_time == 0.0:
+            self.alignment_start_time = time.time()
+            self.get_logger().info(f'🎯 ALIGNING (with height adjustment)')
+        
+        alignment_elapsed = time.time() - self.alignment_start_time
+        
+        # Timeout check
+        if alignment_elapsed > self.alignment_max_time:
+            self.get_logger().warn('⏰ Alignment timeout - proceeding')
+            self.alignment_start_time = 0.0
+            self.transition_to(self.FINAL_APPROACH)
+            return cmd
+        
+        # Check alignment quality
+        is_well_aligned = abs(self.frame_position) < self.alignment_threshold
+        has_confidence = self.confidence > 0.7 and not self.partial_gate
+        
+        if is_well_aligned and has_confidence:
+            self.get_logger().info(
+                f'✅ ALIGNED! (took {alignment_elapsed:.1f}s) → Final approach'
+            )
+            self.alignment_start_time = 0.0
+            self.transition_to(self.FINAL_APPROACH)
+            return cmd
+        
+        # Alignment strategy
+        alignment_quality = abs(self.frame_position)
+        
+        if alignment_quality > 0.2:
+            cmd.linear.x = 0.0
+            cmd.angular.z = -self.frame_position * self.alignment_yaw_gain
+            status = "MAJOR"
+        elif alignment_quality > 0.1:
+            cmd.linear.x = 0.1
+            cmd.angular.z = -self.frame_position * self.alignment_yaw_gain * 0.8
+            status = "MODERATE"
+        else:
+            cmd.linear.x = 0.15
+            cmd.angular.z = -self.frame_position * self.alignment_yaw_gain * 0.5
+            status = "FINE"
+        
+        self.get_logger().info(
+            f'🔄 ALIGNING ({status}): pos={self.frame_position:+.3f}, '
+            f't={alignment_elapsed:.1f}s',
+            throttle_duration_sec=0.3
+        )
+        
+        return cmd
+    
+    def final_approach_behavior(self, cmd: Twist) -> Twist:
+        """Final approach - continuing height adjustment"""
+        if not self.gate_detected:
+            if self.gate_lost_time > 0.0:
+                lost_duration = time.time() - self.gate_lost_time
+                if lost_duration > self.gate_lost_timeout:
+                    self.get_logger().warn('❌ Gate lost - returning to search')
+                    self.transition_to(self.SEARCHING)
+                else:
+                    cmd.linear.x = 0.1
+                    cmd.angular.z = 0.0
+            return cmd
+        
+        # Check if close enough to commit
+        if self.estimated_distance <= self.passing_trigger_distance:
+            if abs(self.frame_position) < 0.2:
+                self.get_logger().info(
+                    f'🚀 COMMITTING at {self.estimated_distance:.2f}m'
+                )
+                self.passing_start_position = self.current_position
+                self.transition_to(self.PASSING)
+                return cmd
             else:
-                self.transition(self.S_COMPLETE)
-            return cmd
-            
-        cmd.linear.x = 1.0 # Full speed
-        cmd.angular.z = 0.0 # Lock yaw
-        return cmd
-
-    def behavior_uturn(self, cmd):
-        """Turn 180 degrees."""
-        # Calculate difference from start yaw
-        diff = abs(self.current_yaw - self.start_yaw)
-        if diff > math.pi: diff = 2*math.pi - diff
+                # Emergency realignment
+                self.get_logger().error(
+                    f'🚨 Misaligned at trigger ({self.frame_position:+.3f})!'
+                )
+                cmd.linear.x = 0.0
+                cmd.angular.z = -self.frame_position * self.alignment_yaw_gain * 2.0
+                return cmd
         
-        if diff > (math.pi * 0.90): # 90% of turn done
-            self.get_logger().info("Search for Pass 2.")
-            self.transition(self.S_SEARCH)
-            return cmd
-            
-        cmd.linear.x = 0.2 # Slight forward to help turn dynamics
-        cmd.angular.z = 0.8 # Hard Left
+        # Check drift
+        if abs(self.frame_position) > self.final_approach_threshold:
+            cmd.linear.x = self.final_approach_speed * 0.6
+            cmd.angular.z = -self.frame_position * self.alignment_yaw_gain * 0.6
+        else:
+            cmd.linear.x = self.final_approach_speed
+            cmd.angular.z = -self.frame_position * self.alignment_yaw_gain * 0.3
+        
+        self.get_logger().info(
+            f'➡️ FINAL: dist={self.estimated_distance:.2f}m, '
+            f'pos={self.frame_position:+.3f}',
+            throttle_duration_sec=0.5
+        )
+        
         return cmd
-
-    def transition(self, new_state):
+    
+    def passing_behavior(self, cmd: Twist) -> Twist:
+        """Pass through gate - LOCK DEPTH"""
+        elapsed = time.time() - self.state_start_time
+        
+        if elapsed > self.passing_duration:
+            self.passes_completed += 1
+            
+            if self.passes_completed == 1:
+                self.pass1_complete_time = time.time()
+                self.get_logger().info('='*70)
+                self.get_logger().info('✅ PASS 1 COMPLETE! (1 qualification point)')
+                self.get_logger().info('   Starting U-turn...')
+                self.get_logger().info('='*70)
+                self.uturn_start_yaw = self.current_yaw
+                self.transition_to(self.UTURN)
+            else:
+                self.pass2_complete_time = time.time()
+                self.get_logger().info('='*70)
+                self.get_logger().info('🏆 PASS 2 COMPLETE! (2 qualification points)')
+                self.get_logger().info('   QUALIFICATION SUCCESSFUL!')
+                self.get_logger().info('='*70)
+                self.transition_to(self.COMPLETED)
+            
+            return cmd
+        
+        # Full speed straight - depth locked
+        cmd.linear.x = self.passing_speed
+        cmd.linear.y = 0.0
+        cmd.angular.z = 0.0
+        
+        pass_num = self.passes_completed + 1
+        self.get_logger().info(
+            f'🚀 PASSING (PASS {pass_num}): {elapsed:.1f}s / {self.passing_duration:.1f}s',
+            throttle_duration_sec=0.5
+        )
+        
+        return cmd
+    
+    def uturn_behavior(self, cmd: Twist) -> Twist:
+        """U-turn - CONSTANT DEPTH"""
+        yaw_diff = self.current_yaw - self.uturn_start_yaw
+        
+        while yaw_diff > math.pi:
+            yaw_diff -= 2 * math.pi
+        while yaw_diff < -math.pi:
+            yaw_diff += 2 * math.pi
+        
+        abs_yaw_diff = abs(yaw_diff)
+        
+        if abs_yaw_diff > (math.pi * 0.85):
+            self.get_logger().info('✅ U-turn complete - searching for gate')
+            self.transition_to(self.SEARCHING)
+            return cmd
+        
+        cmd.linear.x = self.uturn_forward_speed
+        cmd.angular.z = self.uturn_rotation_speed
+        
+        progress_pct = (abs_yaw_diff / math.pi) * 100
+        self.get_logger().info(
+            f'🔄 U-TURNING: {math.degrees(abs_yaw_diff):.0f}° / 180° ({progress_pct:.0f}%)',
+            throttle_duration_sec=0.5
+        )
+        
+        return cmd
+    
+    def completed_behavior(self, cmd: Twist) -> Twist:
+        """Mission complete"""
+        if self.mission_start_time:
+            total_time = time.time() - self.mission_start_time
+            
+            self.get_logger().info('='*70)
+            self.get_logger().info('🏆🏆🏆 QUALIFICATION COMPLETE! 🏆🏆🏆')
+            self.get_logger().info(f'   Total time: {total_time:.2f}s')
+            if self.pass1_complete_time:
+                self.get_logger().info(f'   Pass 1: {(self.pass1_complete_time - self.mission_start_time):.2f}s')
+            if self.pass2_complete_time:
+                self.get_logger().info(f'   Pass 2: {(self.pass2_complete_time - self.mission_start_time):.2f}s')
+            self.get_logger().info('   Qualification points: 2/2')
+            self.get_logger().info('='*70)
+            
+            self.mission_start_time = None
+        
+        cmd.linear.x = 0.0
+        cmd.linear.y = 0.0
+        cmd.linear.z = 0.0
+        cmd.angular.z = 0.0
+        
+        return cmd
+    
+    def transition_to(self, new_state: int):
+        """Transition to new state"""
+        old_name = self.get_state_name()
         self.state = new_state
         self.state_start_time = time.time()
+        new_name = self.get_state_name()
+        
+        self.get_logger().info(f'🔄 STATE: {old_name} → {new_name}')
+    
+    def get_state_name(self) -> str:
+        """Get human-readable state name"""
+        names = {
+            self.IDLE: 'IDLE',
+            self.SEARCHING: 'SEARCHING',
+            self.APPROACHING: 'APPROACHING',
+            self.ALIGNING: 'ALIGNING',
+            self.FINAL_APPROACH: 'FINAL_APPROACH',
+            self.PASSING: 'PASSING',
+            self.UTURN: 'UTURN',
+            self.COMPLETED: 'COMPLETED'
+        }
+        return names.get(self.state, 'UNKNOWN')
+
 
 def main(args=None):
     rclpy.init(args=args)
@@ -261,8 +586,12 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        stop_cmd = Twist()
+        node.cmd_vel_pub.publish(stop_cmd)
+        node.get_logger().info('Qualification Navigator shutting down')
         node.destroy_node()
         rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
