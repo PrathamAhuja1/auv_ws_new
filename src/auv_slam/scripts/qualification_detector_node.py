@@ -77,20 +77,23 @@ class QualificationGateDetector(Node):
         )
         
         # Publishers
-        self.gate_detected_pub = self.create_publisher(Bool, '/gate/detected', 10)
-        self.alignment_pub = self.create_publisher(Float32, '/gate/alignment_error', 10)
-        self.distance_pub = self.create_publisher(Float32, '/gate/estimated_distance', 10)
+        self.gate_detected_pub = self.create_publisher(Bool, '/qualification/gate_detected', 10)
+        self.alignment_pub = self.create_publisher(Float32, '/qualification/alignment_error', 10)
+        self.distance_pub = self.create_publisher(Float32, '/qualification/estimated_distance', 10)
+        
+        # Note: Navigator expects '/qualification/confidence', not 'detection_confidence'
+        self.confidence_pub = self.create_publisher(Float32, '/qualification/confidence', 10) 
+        self.partial_gate_pub = self.create_publisher(Bool, '/qualification/partial_detection', 10)
+        
+        # Debug topics can stay as /gate/ since the navigator doesn't use them
         self.gate_center_pub = self.create_publisher(Point, '/gate/center_point', 10)
         self.debug_pub = self.create_publisher(Image, '/gate/debug_image', 10)
         self.status_pub = self.create_publisher(String, '/gate/status', 10)
-        
         self.frame_position_pub = self.create_publisher(Float32, '/gate/frame_position', 10)
-        self.confidence_pub = self.create_publisher(Float32, '/gate/detection_confidence', 10)
-        self.partial_gate_pub = self.create_publisher(Bool, '/gate/partial_detection', 10)
         
         self.get_logger().info('✅ QUALIFICATION Gate Detector initialized')
         self.get_logger().info('   - Detecting ORANGE posts')
-        self.get_logger().info('   - Supports forward and reverse passes')
+        self.get_logger().info('   - Publishing to /qualification/ namespace')
     
     def reverse_mode_callback(self, msg: Bool):
         if self.reverse_mode != msg.data:
