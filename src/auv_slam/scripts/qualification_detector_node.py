@@ -86,10 +86,10 @@ class QualificationGateDetector(Node):
         self.partial_gate_pub = self.create_publisher(Bool, '/qualification/partial_detection', 10)
         
         # Debug topics can stay as /gate/ since the navigator doesn't use them
-        self.gate_center_pub = self.create_publisher(Point, '/gate/center_point', 10)
-        self.debug_pub = self.create_publisher(Image, '/gate/debug_image', 10)
-        self.status_pub = self.create_publisher(String, '/gate/status', 10)
-        self.frame_position_pub = self.create_publisher(Float32, '/gate/frame_position', 10)
+        self.gate_center_pub = self.create_publisher(Point, '/qualification/center_point', 10)
+        self.debug_pub = self.create_publisher(Image, '/qualification/debug_image', 10)
+        self.status_pub = self.create_publisher(String, '/qualification/status', 10)
+        self.frame_position_pub = self.create_publisher(Float32, '/qualification/frame_position', 10)
         
         self.get_logger().info('✅ QUALIFICATION Gate Detector initialized')
         self.get_logger().info('   - Detecting ORANGE posts')
