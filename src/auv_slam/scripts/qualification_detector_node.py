@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """
-SAUVC Qualification Gate Detector
-Detects orange-marked gate posts for qualification task
-Handles both forward and reverse passes
+QUALIFICATION Gate Detector - Detects orange gate markings on port/starboard sides
+Key features:
+1. Detects two orange vertical stripes (port/starboard)
+2. Handles partial views (single stripe)
+3. Provides confidence metrics and frame position
+4. Distinguishes gate stripes from orange flare obstacle
 """
 
 import rclpy
@@ -19,27 +22,26 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPo
 
 class QualificationGateDetector(Node):
     def __init__(self):
-        super().__init__('qualification_detector_node')
+        super().__init__('gate_detector_node')
         self.bridge = CvBridge()
         self.camera_matrix = None
         self.image_width = None
         self.image_height = None
         
-        # HSV RANGES - ORANGE for qualification gate posts
-        self.orange_lower = np.array([5, 120, 120])
+        # HSV range for ORANGE (gate markings and flare)
+        self.orange_lower = np.array([10, 120, 120])
         self.orange_upper = np.array([25, 255, 255])
         
         # Detection parameters
-        self.min_area_strict = 200
-        self.min_area_relaxed = 80
-        self.aspect_threshold = 1.5  # Gate posts are tall and thin
-        self.gate_width = 1.5
+        self.min_stripe_area = 500
+        self.min_flare_area = 2000
+        self.aspect_threshold = 2.5  # Tall vertical stripes
+        self.gate_width = 1.5  # 150cm in real world
         
-        self.gate_detection_history = deque(maxlen=3)
-        self.min_confirmations = 1
+        self.gate_detection_history = deque(maxlen=5)
+        self.min_confirmations = 2
         
         self.frame_count = 0
-        self.reverse_mode = False
         
         qos_sensor = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -69,37 +71,29 @@ class QualificationGateDetector(Node):
             qos_reliable
         )
         
-        self.reverse_mode_sub = self.create_subscription(
-            Bool,
-            '/mission/reverse_mode',
-            self.reverse_mode_callback,
-            10
-        )
-        
         # Publishers
-        self.gate_detected_pub = self.create_publisher(Bool, '/qualification/gate_detected', 10)
-        self.alignment_pub = self.create_publisher(Float32, '/qualification/alignment_error', 10)
-        self.distance_pub = self.create_publisher(Float32, '/qualification/estimated_distance', 10)
+        self.gate_detected_pub = self.create_publisher(Bool, '/gate/detected', 10)
+        self.alignment_pub = self.create_publisher(Float32, '/gate/alignment_error', 10)
+        self.distance_pub = self.create_publisher(Float32, '/gate/estimated_distance', 10)
+        self.gate_center_pub = self.create_publisher(Point, '/gate/center_point', 10)
+        self.debug_pub = self.create_publisher(Image, '/gate/debug_image', 10)
+        self.status_pub = self.create_publisher(String, '/gate/status', 10)
         
-        # Note: Navigator expects '/qualification/confidence', not 'detection_confidence'
-        self.confidence_pub = self.create_publisher(Float32, '/qualification/confidence', 10) 
-        self.partial_gate_pub = self.create_publisher(Bool, '/qualification/partial_detection', 10)
+        # Navigation feedback
+        self.frame_position_pub = self.create_publisher(Float32, '/gate/frame_position', 10)
+        self.confidence_pub = self.create_publisher(Float32, '/gate/detection_confidence', 10)
+        self.partial_gate_pub = self.create_publisher(Bool, '/gate/partial_detection', 10)
+        self.pass_number_pub = self.create_publisher(String, '/gate/pass_number', 10)
         
-        # Debug topics can stay as /gate/ since the navigator doesn't use them
-        self.gate_center_pub = self.create_publisher(Point, '/qualification/center_point', 10)
-        self.debug_pub = self.create_publisher(Image, '/qualification/debug_image', 10)
-        self.status_pub = self.create_publisher(String, '/qualification/status', 10)
-        self.frame_position_pub = self.create_publisher(Float32, '/qualification/frame_position', 10)
+        # Obstacle detection
+        self.flare_detected_pub = self.create_publisher(Bool, '/flare/detected', 10)
+        self.flare_direction_pub = self.create_publisher(Float32, '/flare/avoidance_direction', 10)
+        self.flare_warning_pub = self.create_publisher(String, '/flare/warning', 10)
         
         self.get_logger().info('✅ QUALIFICATION Gate Detector initialized')
-        self.get_logger().info('   - Detecting ORANGE posts')
-        self.get_logger().info('   - Publishing to /qualification/ namespace')
-    
-    def reverse_mode_callback(self, msg: Bool):
-        if self.reverse_mode != msg.data:
-            self.reverse_mode = msg.data
-            mode = "REVERSE" if self.reverse_mode else "FORWARD"
-            self.get_logger().warn(f'🔄 MODE: {mode}')
+        self.get_logger().info('   - Detects orange port/starboard stripes')
+        self.get_logger().info('   - Handles partial gate views')
+        self.get_logger().info('   - Distinguishes gate from flare obstacle')
     
     def cam_info_callback(self, msg: CameraInfo):
         if self.camera_matrix is None:
@@ -128,21 +122,94 @@ class QualificationGateDetector(Node):
         debug_img = cv_image.copy()
         h, w = cv_image.shape[:2]
         
-        # Create orange mask
+        # Create orange mask for both gate and flare
         orange_mask = cv2.inRange(hsv_image, self.orange_lower, self.orange_upper)
         
         # Morphological operations
-        kernel = np.ones((3, 3), np.uint8)
+        kernel = np.ones((5, 5), np.uint8)
         orange_mask_clean = cv2.morphologyEx(orange_mask, cv2.MORPH_CLOSE, kernel)
         orange_mask_clean = cv2.morphologyEx(orange_mask_clean, cv2.MORPH_OPEN, kernel)
         
-        # Find contours
-        orange_contours, _ = cv2.findContours(orange_mask_clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # Find all orange contours
+        contours, _ = cv2.findContours(orange_mask_clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
-        # Find gate posts
-        posts = self.find_gate_posts(orange_contours, debug_img, w, h)
+        # Separate flare from gate stripes
+        flare_detected = False
+        gate_stripe_contours = []
         
-        # Gate detection logic
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area < self.min_stripe_area:
+                continue
+            
+            x, y, w_bbox, h_bbox = cv2.boundingRect(cnt)
+            aspect_ratio = float(h_bbox) / w_bbox if w_bbox > 0 else 0
+            
+            # Flare is large blob, gate stripes are tall/vertical
+            if area > self.min_flare_area and aspect_ratio < 2.0:
+                # This is likely the flare obstacle
+                flare_detected = True
+                M = cv2.moments(cnt)
+                if M["m00"] > 0:
+                    flare_center_x = int(M["m10"] / M["m00"])
+                    cv2.circle(debug_img, (flare_center_x, int(h/2)), 35, (0, 140, 255), 6)
+                    cv2.putText(debug_img, "FLARE", (flare_center_x - 60, int(h/2) - 50),
+                               cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 140, 255), 4)
+                    
+                    avoidance_direction = -1.0 if flare_center_x < w/2 else 1.0
+                    self.flare_detected_pub.publish(Bool(data=True))
+                    self.flare_direction_pub.publish(Float32(data=avoidance_direction))
+                    self.flare_warning_pub.publish(String(data=f"FLARE at X={flare_center_x}"))
+            elif aspect_ratio > self.aspect_threshold:
+                # This is likely a gate stripe
+                gate_stripe_contours.append(cnt)
+        
+        if not flare_detected:
+            self.flare_detected_pub.publish(Bool(data=False))
+        
+        # Find best two stripes for gate detection
+        port_stripe = None
+        starboard_stripe = None
+        
+        if len(gate_stripe_contours) >= 1:
+            # Sort by x-position to separate port/starboard
+            stripe_info = []
+            for cnt in gate_stripe_contours:
+                area = cv2.contourArea(cnt)
+                x, y, w_bbox, h_bbox = cv2.boundingRect(cnt)
+                M = cv2.moments(cnt)
+                if M["m00"] > 0:
+                    cx = int(M["m10"] / M["m00"])
+                    cy = int(M["m01"] / M["m00"])
+                    stripe_info.append({
+                        'center': (cx, cy),
+                        'bbox': (x, y, w_bbox, h_bbox),
+                        'area': area,
+                        'aspect': float(h_bbox) / w_bbox
+                    })
+            
+            # Sort by x-position
+            stripe_info.sort(key=lambda s: s['center'][0])
+            
+            # Assign port (left) and starboard (right)
+            if len(stripe_info) >= 2:
+                # Check if they're far enough apart to be gate edges
+                stripe_distance = stripe_info[-1]['center'][0] - stripe_info[0]['center'][0]
+                min_gate_pixels = 100  # Minimum pixels for gate width
+                
+                if stripe_distance > min_gate_pixels:
+                    port_stripe = stripe_info[0]
+                    starboard_stripe = stripe_info[-1]
+                else:
+                    # Might be same stripe detected twice, take largest two
+                    stripe_info.sort(key=lambda s: s['area'], reverse=True)
+                    port_stripe = stripe_info[0]
+                    starboard_stripe = stripe_info[1] if len(stripe_info) > 1 else None
+            else:
+                # Only one stripe detected - partial view
+                port_stripe = stripe_info[0]
+        
+        # IMPROVED GATE DETECTION - Handles partial views
         gate_detected = False
         partial_gate = False
         alignment_error = 0.0
@@ -152,101 +219,93 @@ class QualificationGateDetector(Node):
         frame_position = 0.0
         confidence = 0.0
         
-        if len(posts) == 2:
-            # FULL GATE - Both posts visible
+        if port_stripe and starboard_stripe:
+            # FULL GATE DETECTED - Both stripes visible
             gate_detected = True
             partial_gate = False
             confidence = 1.0
             
-            left_post, right_post = sorted(posts, key=lambda p: p['center'][0])
-            
-            gate_center_x = (left_post['center'][0] + right_post['center'][0]) // 2
-            gate_center_y = (left_post['center'][1] + right_post['center'][1]) // 2
+            gate_center_x = (port_stripe['center'][0] + starboard_stripe['center'][0]) // 2
+            gate_center_y = (port_stripe['center'][1] + starboard_stripe['center'][1]) // 2
             
             image_center_x = w / 2
             pixel_error = gate_center_x - image_center_x
             alignment_error = pixel_error / image_center_x
             
-            stripe_distance = abs(right_post['center'][0] - left_post['center'][0])
+            stripe_distance = abs(port_stripe['center'][0] - starboard_stripe['center'][0])
             if stripe_distance > 20:
                 estimated_distance = (self.gate_width * self.fx) / stripe_distance
                 estimated_distance = max(0.5, min(estimated_distance, 50.0))
             
+            # Frame position (-1 = left edge, 0 = center, +1 = right edge)
             frame_position = (gate_center_x - w/2) / (w/2)
             
             # Visualization
             cv2.circle(debug_img, (gate_center_x, gate_center_y), 25, (255, 0, 255), -1)
             cv2.line(debug_img, (gate_center_x, 0), (gate_center_x, h), (255, 0, 255), 4)
-            cv2.line(debug_img, left_post['center'], right_post['center'], (0, 255, 255), 5)
+            cv2.line(debug_img, port_stripe['center'], starboard_stripe['center'], (0, 255, 255), 5)
             
             cv2.putText(debug_img, f"FULL GATE {estimated_distance:.1f}m", 
                        (gate_center_x - 100, gate_center_y - 40),
                        cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 0), 4)
+            
+            # Draw stripes
+            for i, stripe in enumerate([port_stripe, starboard_stripe]):
+                x, y, w_bbox, h_bbox = stripe['bbox']
+                color = (0, 140, 255) if i == 0 else (0, 200, 255)
+                label = "PORT" if i == 0 else "STBD"
+                cv2.rectangle(debug_img, (x, y), (x+w_bbox, y+h_bbox), color, 3)
+                cv2.putText(debug_img, label, (x, y-10),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
         
-        elif len(posts) == 1:
-            # PARTIAL GATE - Only one post visible
+        elif port_stripe:
+            # PARTIAL GATE DETECTED - Only one stripe visible
             gate_detected = True
             partial_gate = True
-            confidence = 0.5
+            confidence = 0.6
             
-            post = posts[0]
-            post_x = post['center'][0]
-            gate_center_y = post['center'][1]
+            gate_center_x = port_stripe['center'][0]
+            gate_center_y = port_stripe['center'][1]
             
-            # Determine which side and infer gate center
-            if not self.reverse_mode:
-                # FORWARD MODE
-                if post_x < w * 0.5:
-                    # Left post visible
-                    gate_center_x = int(post_x + w * 0.25)
-                    side = "LEFT"
-                    desired_x = w * 0.30
-                else:
-                    # Right post visible
-                    gate_center_x = int(post_x - w * 0.25)
-                    side = "RIGHT"
-                    desired_x = w * 0.70
+            # Determine which side based on position
+            is_port_side = gate_center_x < w/2
+            stripe_name = "PORT" if is_port_side else "STBD"
+            
+            # Calculate desired position to keep gate in frame
+            if is_port_side:
+                # Port stripe visible - aim to keep it on left third
+                desired_x = w * 0.30
             else:
-                # REVERSE MODE
-                if post_x < w * 0.5:
-                    gate_center_x = int(post_x + w * 0.25)
-                    side = "LEFT (REV)"
-                    desired_x = w * 0.30
-                else:
-                    gate_center_x = int(post_x - w * 0.25)
-                    side = "RIGHT (REV)"
-                    desired_x = w * 0.70
+                # Starboard stripe visible - aim to keep it on right third
+                desired_x = w * 0.70
             
-            pixel_error = post_x - desired_x
-            alignment_error = pixel_error / (w / 2)
+            pixel_error = gate_center_x - desired_x
+            image_center_x = w / 2
+            alignment_error = pixel_error / image_center_x
+            
+            estimated_distance = 999.0  # Unreliable with one stripe
             frame_position = (gate_center_x - w/2) / (w/2)
             
             # Visualization
             cv2.circle(debug_img, (gate_center_x, gate_center_y), 30, (255, 165, 0), 5)
-            cv2.putText(debug_img, f"PARTIAL: {side}", 
+            cv2.putText(debug_img, f"PARTIAL: {stripe_name}", 
                        (gate_center_x - 150, gate_center_y - 60),
                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 165, 0), 3)
-        
-        # Draw frame edges warning
-        if gate_detected:
-            if abs(frame_position) > 0.6:
-                edge_warning = "NEAR EDGE!" if abs(frame_position) > 0.8 else "edge warning"
-                color = (0, 0, 255) if abs(frame_position) > 0.8 else (0, 165, 255)
-                cv2.putText(debug_img, edge_warning, (w//2 - 150, 50),
-                           cv2.FONT_HERSHEY_SIMPLEX, 1.2, color, 3)
+            cv2.putText(debug_img, "CENTERING...", 
+                       (gate_center_x - 100, gate_center_y + 60),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 0), 2)
         
         # Draw center line
         cv2.line(debug_img, (w//2, 0), (w//2, h), (0, 255, 255), 2)
         
         # Status overlay
-        mode_text = "REVERSE" if self.reverse_mode else "FORWARD"
         status_lines = [
             f"Frame {self.frame_count}",
-            f"Mode: {mode_text}",
-            f"Posts: {len(posts)}",
             f"Confidence: {confidence:.2f}",
         ]
         
+        if flare_detected:
+            status_lines.append("FLARE!")
         if gate_detected:
             if partial_gate:
                 status_lines.append(f"PARTIAL @ {frame_position:+.2f}")
@@ -283,62 +342,6 @@ class QualificationGateDetector(Node):
             self.debug_pub.publish(debug_msg)
         except CvBridgeError as e:
             self.get_logger().error(f'Debug image error: {e}')
-    
-    def find_gate_posts(self, contours, debug_img, img_w, img_h):
-        """Find the two most likely gate posts (orange, tall, thin)"""
-        candidates = []
-        
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
-            if area < self.min_area_relaxed:
-                continue
-            
-            x, y, w, h = cv2.boundingRect(cnt)
-            if w == 0 or h == 0:
-                continue
-            
-            aspect_ratio = float(h) / w
-            
-            # Gate posts should be tall and thin (aspect > 1.5)
-            if aspect_ratio < self.aspect_threshold:
-                continue
-            
-            M = cv2.moments(cnt)
-            if M["m00"] == 0:
-                continue
-            
-            cx = int(M["m10"] / M["m00"])
-            cy = int(M["m01"] / M["m00"])
-            
-            # Score based on area and aspect ratio
-            score = area * aspect_ratio
-            
-            candidates.append({
-                'center': (cx, cy),
-                'bbox': (x, y, w, h),
-                'area': area,
-                'aspect': aspect_ratio,
-                'score': score,
-                'contour': cnt
-            })
-        
-        # Sort by score and take top 2
-        candidates.sort(key=lambda p: p['score'], reverse=True)
-        posts = candidates[:2]
-        
-        # Draw detected posts
-        for post in posts:
-            cx, cy = post['center']
-            x, y, w, h = post['bbox']
-            
-            cv2.rectangle(debug_img, (x, y), (x+w, y+h), (0, 165, 255), 3)
-            cv2.circle(debug_img, (cx, cy), 12, (0, 165, 255), -1)
-            cv2.circle(debug_img, (cx, cy), 15, (255, 255, 255), 2)
-            
-            cv2.putText(debug_img, f"POST {int(post['area'])}", (x, y-10),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
-        
-        return posts
     
     def publish_gate_data(self, confirmed_gate, partial_gate, alignment_error, 
                          estimated_distance, center_x, center_y, frame_position, 
