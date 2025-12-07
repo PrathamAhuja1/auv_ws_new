@@ -1,40 +1,35 @@
 #!/usr/bin/env python3
 """
-SAUVC Qualification Mission Launch File
-Launches complete qualification task in qualification_world.sdf
-
-Mission Requirements:
-- Pass through orange-marked gate (forward)
-- U-turn 180°
-- Pass through gate again (reverse)
-- Don't touch walls, floor, or gate
+Qualification Mission Launch File
+Launches complete qualification system:
+1. Simulation (Qualification World + Robot at Start Line)
+2. Mission Logic (Detector + Navigator + Safety)
 """
 
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import TimerAction, ExecuteProcess
-from launch.substitutions import LaunchConfiguration, Command
 from launch_ros.actions import Node
-from launch_ros.descriptions import ParameterValue
-
+from launch.substitutions import Command, FindExecutable
+import launch_ros.descriptions
 
 def generate_launch_description():
     auv_slam_share = get_package_share_directory('auv_slam')
     
     # --- Paths ---
+    urdf_file = os.path.join(auv_slam_share, 'urdf', 'orca4_description.urdf')
+    rviz_config = os.path.join(auv_slam_share, 'rviz', 'urdf_config.rviz')
+    bridge_config = os.path.join(auv_slam_share, 'config', 'ign_bridge.yaml')
+    
+    # Configs
     thruster_params = os.path.join(auv_slam_share, 'config', 'thruster_params.yaml')
     qual_params = os.path.join(auv_slam_share, 'config', 'qualification_params.yaml')
-    bridge_config_path = os.path.join(auv_slam_share, 'config', 'ign_bridge.yaml')
     
-    # Model & Config
-    default_model_path = os.path.join(auv_slam_share, 'urdf', 'orca4_description.urdf')
-    default_rviz_config_path = os.path.join(auv_slam_share, 'rviz', 'urdf_config.rviz')
+    # World: SAUVC Qualification Pool (25m x 16m)
+    world_file = os.path.join(auv_slam_share, 'worlds', 'qualification_world.sdf')
     
-    # Qualification World
-    world_path = os.path.join(auv_slam_share, "worlds", "qualification_world.sdf")
-    
-    # --- Gazebo Environment Setup ---
+    # Gazebo Environment Setup
     gz_models_path = os.path.join(auv_slam_share, "models")
     gz_resource_path = os.environ.get("GZ_SIM_RESOURCE_PATH", default="")
     gz_env = {
@@ -47,48 +42,41 @@ def generate_launch_description():
         'GZ_SIM_RESOURCE_PATH':
                       ':'.join([gz_resource_path, gz_models_path])
     }
-    
-    # --- Launch Arguments ---
-    use_sim_time = LaunchConfiguration('use_sim_time', default='True')
-    gz_verbosity = LaunchConfiguration('gz_verbosity', default='2')
-    
-    # 1. Robot State Publisher
+
+    # --- Simulation Nodes ---
+
+    # 1. Robot State Publisher (REQUIRED for spawning)
     robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
+        output='screen',
         parameters=[{
-            'robot_description': ParameterValue(Command(['xacro ', default_model_path]), value_type=str),
-            'use_sim_time': use_sim_time
+            'robot_description': launch_ros.descriptions.ParameterValue(
+                Command(['xacro ', urdf_file]), value_type=str
+            ),
+            'use_sim_time': True
         }]
     )
-    
+
     # 2. Joint State Publisher
     joint_state_publisher = Node(
         package='joint_state_publisher',
         executable='joint_state_publisher',
         name='joint_state_publisher',
-        parameters=[{
-            'robot_description': ParameterValue(Command(['xacro ', default_model_path]), value_type=str)
-        }]
+        parameters=[{'use_sim_time': True}]
     )
-    
-    # 3. RViz
-    rviz_node = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
+
+    # 3. Gazebo Simulator
+    gazebo_process = ExecuteProcess(
+        cmd=['ruby', FindExecutable(name="ign"), 'gazebo', '-r', '-v', '3', world_file],
         output='screen',
-        arguments=['-d', default_rviz_config_path],
+        additional_env=gz_env,
+        shell=False
     )
-    
-    # 4. Gazebo Simulation
-    gz_sim = ExecuteProcess(
-        cmd=['ign', 'gazebo', '-r', '-v', gz_verbosity, world_path],
-        output='screen',
-        additional_env=gz_env
-    )
-    
-    # 5. Spawn Robot at Starting Zone (-10, 0, -0.3)
+
+    # 4. Spawn Robot at STARTING LINE
+    # Pool Start Zone is at x = -12.5m. 
+    # Spawning at -12.0m gives 0.5m clearance from wall.
     spawn_entity = Node(
         package="ros_gz_sim",
         executable="create",
@@ -96,94 +84,115 @@ def generate_launch_description():
         arguments=[
             "-name", "orca4_ign",
             "-topic", "robot_description",
-            "-x", "-10.0",  # Starting zone X position
-            "-y", "0.0",    # Centered in Y
-            "-z", "-0.3",   # Just below surface
-            "--ros-args"
+            "-z", "0.2",   # Spawn at surface
+            "-x", "-12.0", # STARTING LOCATION
+            "-y", "0.0",
+            "-Y", "0.0",   # Face towards gate (Positive X)
+            "--ros-args", "--log-level", "warn"
         ],
-        parameters=[{"use_sim_time": use_sim_time}],
+        parameters=[{"use_sim_time": True}],
     )
-    
-    # 6. ROS-Gazebo Bridge
+
+    # 5. Bridge (ROS <-> Gazebo)
     bridge = Node(
         package="ros_gz_bridge",
         executable="parameter_bridge",
-        arguments=['--ros-args', '-p', f'config_file:={bridge_config_path}'],
-        output="screen",
+        arguments=[
+            '--ros-args',
+            '-p', f'config_file:={bridge_config}'
+        ],
+        output='screen',
+        parameters=[{'use_sim_time': True}]
     )
-    
-    # --- QUALIFICATION MISSION NODES ---
-    
-    # 7. Thruster Mapper
+
+    # --- Mission Nodes ---
+
+    # 6. Thruster Mapper
     thruster_mapper = Node(
         package='auv_slam',
         executable='simple_thruster_mapper.py',
         name='thruster_mapper',
         output='screen',
-        parameters=[thruster_params]
+        parameters=[thruster_params, {'use_sim_time': True}]
     )
     
-    # 8. Qualification Gate Detector (ORANGE posts)
-    gate_detector = Node(
-        package='auv_slam',
-        executable='qualification_detector_node.py',
-        name='qualification_detector_node',
-        output='screen',
-        parameters=[qual_params]
-    )
-    
-    # 9. Qualification Navigator (2-pass logic)
-    gate_navigator = TimerAction(
-        period=5.0,  # Wait for simulation to stabilize
+    # 7. Qualification Gate Detector
+    gate_detector = TimerAction(
+        period=5.0, # Wait for spawn
         actions=[
             Node(
                 package='auv_slam',
-                executable='qualification_navigator_node.py',
-                name='qualification_navigator_node',
+                executable='qualification_detector_node.py',
+                name='qualification_gate_detector',
                 output='screen',
-                parameters=[qual_params]
+                parameters=[qual_params, {'use_sim_time': True}]
             )
         ]
     )
     
-    # 10. Safety Monitor
+    # 8. Qualification Navigator
+    navigator = TimerAction(
+        period=8.0, # Wait for detector
+        actions=[
+            Node(
+                package='auv_slam',
+                executable='qualification_navigator_node.py',
+                name='qualification_navigator',
+                output='screen',
+                parameters=[qual_params, {'use_sim_time': True}]
+            )
+        ]
+    )
+    
+    # 9. Safety Monitor
     safety_monitor = Node(
         package='auv_slam',
         executable='safety_monitor_node.py',
         name='safety_monitor',
         output='screen',
         parameters=[{
-            'max_depth': -1.5,      # Qualification pool is shallower
-            'min_depth': 0.1,
+            'max_depth': -1.55,
+            'min_depth': 0.2,
             'max_roll': 0.785,
             'max_pitch': 0.785,
             'watchdog_timeout': 5.0,
-            'max_mission_time': 300.0  # 5 minutes for qualification
+            'max_mission_time': 900.0,
+            'pool_bounds_x': [-12.5, 12.5],
+            'pool_bounds_y': [-8.0, 8.0],
+            'use_sim_time': True
         }]
     )
     
-    # 11. Debug Image View (delayed start)
-    rqt_image_view = ExecuteProcess(
-        cmd=['rqt_image_view', '/gate/debug_image'],
+    # 10. RViz
+    rviz_node = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
         output='screen',
-        shell=False
+        arguments=['-d', rviz_config],
+        parameters=[{'use_sim_time': True}]
     )
-    
+    rqt_image_view = Node(
+        package='rqt_image_view',
+        executable='rqt_image_view',
+        name='rqt_image_view',
+        arguments=['/qualification/debug_image'],
+        parameters=[{'use_sim_time': True}]
+    )
+
     return LaunchDescription([
-        # Simulation Stack
         robot_state_publisher,
         joint_state_publisher,
-        rviz_node,
-        gz_sim,
+        gazebo_process,
         spawn_entity,
         bridge,
-        
-        # Mission Stack
         thruster_mapper,
         gate_detector,
-        gate_navigator,
+        navigator,
         safety_monitor,
-        
-        # Debug visualization (delayed start)
-        TimerAction(period=3.0, actions=[rqt_image_view]),
+        rqt_image_view,
+        rviz_node
     ])
+
+if __name__ == '__main__':
+    generate_launch_description()
