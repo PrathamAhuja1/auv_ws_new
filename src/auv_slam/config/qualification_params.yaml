@@ -1,0 +1,38 @@
+
+qualification_detector_node:
+  ros__parameters:
+    # HSV RANGES - Matches simulation colors
+    red_lower1: [0, 100, 100]
+    red_upper1: [10, 255, 255]
+    red_lower2: [170, 100, 100]
+    red_upper2: [180, 255, 255]
+    
+    green_lower: [40, 100, 100]
+    green_upper: [80, 255, 255]
+    
+    orange_lower: [10, 120, 120]
+    orange_upper: [25, 255, 255]
+    
+    # Detection thresholds
+    min_area_strict: 300
+    min_area_relaxed: 80
+    aspect_threshold: 0.8
+    gate_width_meters: 1.5
+    
+    publish_debug: true
+
+
+qualification_navigator_node:
+  ros__parameters:
+    target_depth: -0.8
+    
+    # Control Parameters
+    depth_deadband: 0.1
+    depth_gain_weak: 0.5
+    depth_gain_strong: 1.5
+    
+    # Navigation Speeds
+    search_speed: 0.3
+    approach_speed: 0.5
+    passing_speed: 1.0
+    passing_duration: 6.0
