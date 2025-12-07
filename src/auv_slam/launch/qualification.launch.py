@@ -163,13 +163,20 @@ def generate_launch_description():
         }]
     )
     
-    # 10. RViz (Optional)
+    # 10. RViz
     rviz_node = Node(
         package='rviz2',
         executable='rviz2',
         name='rviz2',
         output='screen',
         arguments=['-d', rviz_config],
+        parameters=[{'use_sim_time': True}]
+    )
+    rqt_image_view = Node(
+        package='rqt_image_view',
+        executable='rqt_image_view',
+        name='rqt_image_view',
+        arguments=['/qualification/debug_image'],
         parameters=[{'use_sim_time': True}]
     )
 
@@ -183,6 +190,7 @@ def generate_launch_description():
         gate_detector,
         navigator,
         safety_monitor,
+        rqt_image_view,
         rviz_node
     ])
 

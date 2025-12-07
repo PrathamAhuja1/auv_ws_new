@@ -1,17 +1,8 @@
 #!/usr/bin/env python3
 """
-Qualification Navigator - Complete qualification run with U-turn
-Flow:
-1. WAITING_TO_START - Wait at starting zone
-2. SUBMERGING - Autonomous descent to operational depth
-3. FORWARD_SEARCH - Search for gate
-4. FORWARD_APPROACH - Approach gate
-5. FORWARD_PASSING - Pass through gate (1st point)
-6. U_TURN - Perform 180° turn
-7. REVERSE_SEARCH - Find gate from other side
-8. REVERSE_APPROACH - Approach gate from reverse
-9. REVERSE_PASSING - Pass through gate (2nd point)
-10. COMPLETED - Mission complete
+FIXED Qualification Navigator - Active Rotation Stabilization
+Key fix: Continuously corrects unwanted rotation caused by thruster mapper bug
+Works the same way as gate_navigator_node.py
 """
 
 import rclpy
@@ -42,9 +33,12 @@ class QualificationNavigator(Node):
         self.state = self.WAITING_TO_START
         
         # Parameters - Depth control
-        self.declare_parameter('target_depth', -0.8)  # 80cm below surface
+        self.declare_parameter('target_depth', -0.8)
         self.declare_parameter('depth_tolerance', 0.15)
         self.declare_parameter('depth_correction_gain', 2.0)
+        
+        # CRITICAL FIX: Rotation stabilization parameters
+        self.declare_parameter('rotation_stabilization_gain', 2.0)  # NEW
         
         # Search parameters
         self.declare_parameter('search_forward_speed', 0.4)
@@ -58,11 +52,11 @@ class QualificationNavigator(Node):
         # Passing parameters
         self.declare_parameter('passing_speed', 0.8)
         self.declare_parameter('passing_trigger_distance', 1.2)
-        self.declare_parameter('passing_clearance', 1.5)  # Distance past gate center
+        self.declare_parameter('passing_clearance', 1.5)
         
         # U-turn parameters
         self.declare_parameter('uturn_rotation_speed', 0.5)
-        self.declare_parameter('uturn_target_angle', 3.14159)  # 180 degrees in radians
+        self.declare_parameter('uturn_target_angle', 3.14159)
         self.declare_parameter('uturn_angle_tolerance', 0.15)
         
         # Gate position tracking
@@ -72,6 +66,9 @@ class QualificationNavigator(Node):
         self.target_depth = self.get_parameter('target_depth').value
         self.depth_tolerance = self.get_parameter('depth_tolerance').value
         self.depth_gain = self.get_parameter('depth_correction_gain').value
+        
+        # CRITICAL FIX: Get rotation stabilization gain
+        self.rotation_stab_gain = self.get_parameter('rotation_stabilization_gain').value
         
         self.search_forward_speed = self.get_parameter('search_forward_speed').value
         self.search_rotation_speed = self.get_parameter('search_rotation_speed').value
@@ -101,6 +98,11 @@ class QualificationNavigator(Node):
         # Position and orientation
         self.current_position = None
         self.current_yaw = 0.0
+        
+        # CRITICAL FIX: Track target yaw for stabilization
+        self.target_yaw = 0.0  # Will be set to initial yaw
+        self.initial_yaw_set = False
+        
         self.uturn_start_yaw = 0.0
         
         # Passing tracking
@@ -144,6 +146,7 @@ class QualificationNavigator(Node):
         self.get_logger().info('='*70)
         self.get_logger().info('   Task: Forward pass → U-turn → Reverse pass')
         self.get_logger().info('   Points: 1st pass = 1 point, 2nd pass = 2 points total')
+        self.get_logger().info('   FIX: Active rotation stabilization enabled')
         self.get_logger().info('   Waiting to start...')
         self.get_logger().info('='*70)
     
@@ -181,6 +184,12 @@ class QualificationNavigator(Node):
         siny_cosp = 2 * (q.w * q.z + q.x * q.y)
         cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
         self.current_yaw = math.atan2(siny_cosp, cosy_cosp)
+        
+        # CRITICAL FIX: Set initial target yaw (facing forward toward gate)
+        if not self.initial_yaw_set:
+            self.target_yaw = self.current_yaw
+            self.initial_yaw_set = True
+            self.get_logger().info(f'🎯 Initial yaw locked: {math.degrees(self.target_yaw):.1f}°')
     
     def control_loop(self):
         cmd = Twist()
@@ -230,7 +239,6 @@ class QualificationNavigator(Node):
     
     def waiting_to_start(self, cmd: Twist) -> Twist:
         """Wait at starting zone, ready to begin"""
-        # Stay at surface, no movement
         cmd.linear.x = 0.0
         cmd.linear.y = 0.0
         cmd.linear.z = 0.0
@@ -246,7 +254,10 @@ class QualificationNavigator(Node):
         return cmd
     
     def submerging_behavior(self, cmd: Twist) -> Twist:
-        """Autonomous descent to operational depth"""
+        """
+        CRITICAL FIX: Active rotation stabilization during descent
+        This prevents unwanted spinning caused by thruster mapper bug
+        """
         # Check if reached target depth
         depth_error = abs(self.target_depth - self.current_depth)
         
@@ -257,14 +268,18 @@ class QualificationNavigator(Node):
             self.transition_to(self.FORWARD_SEARCH)
             return cmd
         
-        # Descend (depth control handles this)
+        # CRITICAL FIX: Apply rotation stabilization (like gate navigator does)
+        yaw_error = self.normalize_angle(self.target_yaw - self.current_yaw)
+        cmd.angular.z = yaw_error * self.rotation_stab_gain
+        
+        # No forward movement during submerge
         cmd.linear.x = 0.0
-        cmd.angular.z = 0.0
         
         elapsed = time.time() - self.state_start_time
         if int(elapsed) % 2 == 0:
             self.get_logger().info(
-                f'⬇️ Submerging... depth={self.current_depth:.2f}m target={self.target_depth:.2f}m',
+                f'⬇️ Submerging... depth={self.current_depth:.2f}m target={self.target_depth:.2f}m '
+                f'yaw_err={math.degrees(yaw_error):.1f}°',
                 throttle_duration_sec=1.9
             )
         
@@ -312,8 +327,10 @@ class QualificationNavigator(Node):
                     self.get_logger().warn('❌ Gate lost - returning to search')
                     self.transition_to(self.FORWARD_SEARCH)
                 else:
+                    # CRITICAL FIX: Maintain heading even when gate lost
                     cmd.linear.x = 0.2
-                    cmd.angular.z = 0.0
+                    yaw_error = self.normalize_angle(self.target_yaw - self.current_yaw)
+                    cmd.angular.z = yaw_error * self.rotation_stab_gain
             return cmd
         
         # Check if close enough to commit to passing
@@ -347,7 +364,6 @@ class QualificationNavigator(Node):
             current_x = self.current_position[0]
             distance_traveled = abs(current_x - self.forward_pass_start_x)
             
-            # Gate is at X=-2.5, need to pass center + clearance
             if current_x > (self.gate_x_position + self.passing_clearance):
                 self.qualification_points = 1
                 self.forward_pass_time = time.time() - self.mission_start_time
@@ -369,7 +385,10 @@ class QualificationNavigator(Node):
         
         # Full speed through gate
         cmd.linear.x = self.passing_speed
-        cmd.angular.z = 0.0
+        
+        # CRITICAL FIX: Maintain heading during pass
+        yaw_error = self.normalize_angle(self.target_yaw - self.current_yaw)
+        cmd.angular.z = yaw_error * self.rotation_stab_gain * 0.5
         
         return cmd
     
@@ -380,14 +399,18 @@ class QualificationNavigator(Node):
         angle_remaining = self.uturn_target_angle - angle_turned
         
         if angle_remaining < self.uturn_angle_tolerance:
+            # CRITICAL FIX: Update target yaw after U-turn
+            self.target_yaw = self.normalize_angle(self.target_yaw + math.pi)
+            
             self.get_logger().info(
-                f'✓ U-turn complete! Turned {math.degrees(angle_turned):.1f}°'
+                f'✓ U-turn complete! Turned {math.degrees(angle_turned):.1f}°, '
+                f'new target yaw: {math.degrees(self.target_yaw):.1f}°'
             )
             self.transition_to(self.REVERSE_SEARCH)
             return cmd
         
         # Rotate in place
-        cmd.linear.x = 0.1  # Slight forward drift
+        cmd.linear.x = 0.1
         cmd.angular.z = self.uturn_rotation_speed
         
         elapsed = time.time() - self.state_start_time
@@ -400,6 +423,7 @@ class QualificationNavigator(Node):
         # Timeout check
         if elapsed > 20.0:
             self.get_logger().warn('⚠️ U-turn timeout - proceeding to reverse search')
+            self.target_yaw = self.normalize_angle(self.target_yaw + math.pi)
             self.transition_to(self.REVERSE_SEARCH)
         
         return cmd
@@ -441,8 +465,10 @@ class QualificationNavigator(Node):
                     self.get_logger().warn('❌ Gate lost - returning to search')
                     self.transition_to(self.REVERSE_SEARCH)
                 else:
+                    # CRITICAL FIX: Maintain heading
                     cmd.linear.x = 0.2
-                    cmd.angular.z = 0.0
+                    yaw_error = self.normalize_angle(self.target_yaw - self.current_yaw)
+                    cmd.angular.z = yaw_error * self.rotation_stab_gain
             return cmd
         
         # Check if close enough to commit
@@ -476,7 +502,6 @@ class QualificationNavigator(Node):
             current_x = self.current_position[0]
             distance_traveled = abs(current_x - self.reverse_pass_start_x)
             
-            # Gate is at X=-2.5, coming from positive side now
             if current_x < (self.gate_x_position - self.passing_clearance):
                 self.qualification_points = 2
                 total_time = time.time() - self.mission_start_time
@@ -501,7 +526,10 @@ class QualificationNavigator(Node):
         
         # Full speed through gate
         cmd.linear.x = self.passing_speed
-        cmd.angular.z = 0.0
+        
+        # CRITICAL FIX: Maintain heading
+        yaw_error = self.normalize_angle(self.target_yaw - self.current_yaw)
+        cmd.angular.z = yaw_error * self.rotation_stab_gain * 0.5
         
         return cmd
     
