@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """
-FIXED QUALIFICATION NAVIGATOR - Based on Proven Gate Navigator Architecture
-Uses the same proven approach: Approach → Align@3m → Final Approach → Pass
+FIXED QUALIFICATION NAVIGATOR - Proper Gate Passage
+
+KEY FIXES:
+1. Larger clearance distance (2.0m) to ensure back of AUV clears gate
+2. Better alignment maintenance during final approach
+3. Stricter alignment requirements before committing to pass
+4. Proper U-turn with yaw verification
+5. Emergency abort if severely misaligned during passage
 """
 
 import rclpy
@@ -17,14 +23,14 @@ class FixedQualificationNavigator(Node):
     def __init__(self):
         super().__init__('qualification_navigator')
         
-        # State machine - PROVEN ARCHITECTURE from gate_navigator_node.py
+        # State machine
         self.SUBMERGING = 0
         self.SEARCHING = 1
-        self.APPROACHING = 2       # Casual approach (far → 3m)
-        self.ALIGNING = 3          # STOP at 3m and align (CRITICAL!)
-        self.FINAL_APPROACH = 4    # Aligned approach (3m → 1.2m)
-        self.PASSING = 5           # Full speed through gate
-        self.CLEARING = 6          # Ensure complete passage
+        self.APPROACHING = 2
+        self.ALIGNING = 3
+        self.FINAL_APPROACH = 4
+        self.PASSING = 5
+        self.CLEARING = 6
         self.UTURN = 7
         self.REVERSE_SEARCHING = 8
         self.REVERSE_APPROACHING = 9
@@ -37,14 +43,15 @@ class FixedQualificationNavigator(Node):
         
         self.state = self.SUBMERGING
         
-        # Mission depth - ONE depth for entire mission
+        # Mission parameters
         self.mission_depth = -0.8
-        
-        # Gate position (X=0 in qualification world)
         self.gate_x_position = 0.0
-        self.gate_clearance_distance = 1.0
         
-        # PROVEN PARAMETERS from reference
+        # CRITICAL: Larger clearance to ensure AUV back clears gate
+        # AUV length ~0.46m, so 2.0m clearance ensures full passage
+        self.gate_clearance_distance = 2.0
+        
+        # Navigation parameters
         self.declare_parameter('search_forward_speed', 0.4)
         self.declare_parameter('search_rotation_speed', 0.3)
         
@@ -52,16 +59,18 @@ class FixedQualificationNavigator(Node):
         self.declare_parameter('approach_stop_distance', 3.0)
         self.declare_parameter('approach_yaw_gain', 1.0)
         
-        # CRITICAL: Alignment at 3m (PURE ROTATION, NO LATERAL)
+        # CRITICAL: Stricter alignment requirements
         self.declare_parameter('alignment_distance', 3.0)
-        self.declare_parameter('alignment_threshold', 0.08)
-        self.declare_parameter('alignment_max_time', 15.0)
-        self.declare_parameter('alignment_yaw_gain', 3.5)
+        self.declare_parameter('alignment_threshold', 0.06)  # Tighter: ±6%
+        self.declare_parameter('alignment_max_time', 20.0)
+        self.declare_parameter('alignment_yaw_gain', 4.0)  # Stronger yaw
         
         self.declare_parameter('final_approach_speed', 0.5)
-        self.declare_parameter('final_approach_threshold', 0.12)
+        self.declare_parameter('final_approach_threshold', 0.10)
         
-        self.declare_parameter('passing_trigger_distance', 1.2)
+        # CRITICAL: Only commit when very close AND well aligned
+        self.declare_parameter('passing_trigger_distance', 1.0)
+        self.declare_parameter('passing_alignment_requirement', 0.15)  # Must be within ±15%
         self.declare_parameter('passing_speed', 1.0)
         
         self.search_forward_speed = self.get_parameter('search_forward_speed').value
@@ -80,6 +89,7 @@ class FixedQualificationNavigator(Node):
         self.final_approach_threshold = self.get_parameter('final_approach_threshold').value
         
         self.passing_trigger_distance = self.get_parameter('passing_trigger_distance').value
+        self.passing_alignment_requirement = self.get_parameter('passing_alignment_requirement').value
         self.passing_speed = self.get_parameter('passing_speed').value
         
         # State variables
@@ -97,21 +107,19 @@ class FixedQualificationNavigator(Node):
         self.state_start_time = time.time()
         self.mission_start_time = time.time()
         self.uturn_start_yaw = 0.0
+        self.uturn_start_time = 0.0
         self.reverse_mode = False
         
+        self.first_pass_complete = False
+        self.second_pass_complete = False
+        
         # Subscriptions
-        self.create_subscription(Bool, '/qualification/gate_detected', 
-                                 self.gate_cb, 10)
-        self.create_subscription(Float32, '/qualification/alignment_error',
-                                 self.align_cb, 10)
-        self.create_subscription(Float32, '/qualification/estimated_distance',
-                                 self.dist_cb, 10)
-        self.create_subscription(Float32, '/qualification/frame_position',
-                                 self.frame_pos_cb, 10)
-        self.create_subscription(Float32, '/qualification/confidence',
-                                 self.conf_cb, 10)
-        self.create_subscription(Odometry, '/ground_truth/odom',
-                                 self.odom_cb, 10)
+        self.create_subscription(Bool, '/qualification/gate_detected', self.gate_cb, 10)
+        self.create_subscription(Float32, '/qualification/alignment_error', self.align_cb, 10)
+        self.create_subscription(Float32, '/qualification/estimated_distance', self.dist_cb, 10)
+        self.create_subscription(Float32, '/qualification/frame_position', self.frame_pos_cb, 10)
+        self.create_subscription(Float32, '/qualification/confidence', self.conf_cb, 10)
+        self.create_subscription(Odometry, '/ground_truth/odom', self.odom_cb, 10)
         
         # Publishers
         self.cmd_vel_pub = self.create_publisher(Twist, '/rp2040/cmd_vel', 10)
@@ -122,8 +130,10 @@ class FixedQualificationNavigator(Node):
         
         self.get_logger().info('='*70)
         self.get_logger().info('✅ FIXED QUALIFICATION NAVIGATOR')
-        self.get_logger().info('   Architecture: PROVEN gate navigator approach')
-        self.get_logger().info('   Flow: Approach → ALIGN@3m → Final → Pass → U-turn → Repeat')
+        self.get_logger().info('   - Proper gate center detection')
+        self.get_logger().info('   - Larger clearance: 2.0m (ensures back clears)')
+        self.get_logger().info('   - Stricter alignment before commitment')
+        self.get_logger().info('   - Emergency abort on severe misalignment')
         self.get_logger().info('='*70)
     
     def gate_cb(self, msg: Bool):
@@ -157,7 +167,7 @@ class FixedQualificationNavigator(Node):
     def control_loop(self):
         cmd = Twist()
         
-        # Depth control - single mission depth
+        # Depth control
         cmd.linear.z = self.depth_control(self.mission_depth)
         
         # State machine
@@ -168,7 +178,7 @@ class FixedQualificationNavigator(Node):
         elif self.state == self.APPROACHING:
             cmd = self.approaching(cmd)
         elif self.state == self.ALIGNING:
-            cmd = self.aligning(cmd)  # CRITICAL PHASE
+            cmd = self.aligning(cmd)
         elif self.state == self.FINAL_APPROACH:
             cmd = self.final_approach(cmd)
         elif self.state == self.PASSING:
@@ -222,7 +232,6 @@ class FixedQualificationNavigator(Node):
         return cmd
     
     def searching(self, cmd: Twist) -> Twist:
-        """Search with forward movement + rotation"""
         if self.gate_detected and self.estimated_distance < 999:
             self.get_logger().info(f'🎯 Gate found at {self.estimated_distance:.2f}m')
             if self.reverse_mode:
@@ -231,40 +240,31 @@ class FixedQualificationNavigator(Node):
                 self.transition_to(self.APPROACHING)
             return cmd
         
-        # Forward + rotation search
         cmd.linear.x = self.search_forward_speed
         cmd.angular.z = self.search_rotation_speed if (time.time() % 8 < 4) else -self.search_rotation_speed
         return cmd
     
     def approaching(self, cmd: Twist) -> Twist:
-        """Casual approach - STOP at 3m to align"""
         if not self.gate_detected:
             cmd.linear.x = 0.2
             cmd.angular.z = 0.3
             return cmd
         
-        # CRITICAL: Stop at 3m to do proper alignment
         if self.estimated_distance <= self.approach_stop_distance:
-            self.get_logger().info(f'🛑 Reached 3m - STOPPING to align')
+            self.get_logger().info(f'🛑 Reached 3m - ALIGNING (pos={self.frame_position:+.3f})')
             if self.reverse_mode:
                 self.transition_to(self.REVERSE_ALIGNING)
             else:
                 self.transition_to(self.ALIGNING)
             return cmd
         
-        # Moderate speed, light yaw correction
         cmd.linear.x = self.approach_speed
         cmd.angular.z = -self.frame_position * self.approach_yaw_gain
         
         return cmd
     
     def aligning(self, cmd: Twist) -> Twist:
-        """
-        CRITICAL: PURE ROTATION AT 3M
-        - NO forward movement (or minimal)
-        - NO lateral sway
-        - ONLY yaw rotation to center gate
-        """
+        """CRITICAL: Proper rotation-based alignment"""
         if not self.gate_detected:
             cmd.linear.x = 0.0
             cmd.angular.z = 0.3
@@ -277,7 +277,7 @@ class FixedQualificationNavigator(Node):
         elapsed = time.time() - self.alignment_start_time
         
         if elapsed > self.alignment_max_time:
-            self.get_logger().warn('⏰ Alignment timeout - proceeding')
+            self.get_logger().warn('⏰ Alignment timeout - proceeding with caution')
             self.alignment_start_time = 0.0
             if self.reverse_mode:
                 self.transition_to(self.REVERSE_FINAL_APPROACH)
@@ -285,12 +285,15 @@ class FixedQualificationNavigator(Node):
                 self.transition_to(self.FINAL_APPROACH)
             return cmd
         
-        # Check if well aligned
-        is_aligned = abs(self.frame_position) < self.alignment_threshold
+        # Check alignment quality
+        is_well_aligned = abs(self.frame_position) < self.alignment_threshold
         has_confidence = self.confidence > 0.8
         
-        if is_aligned and has_confidence:
-            self.get_logger().info(f'✅ ALIGNED! (took {elapsed:.1f}s)')
+        if is_well_aligned and has_confidence:
+            self.get_logger().info(
+                f'✅ ALIGNED! (pos={self.frame_position:+.3f}, {elapsed:.1f}s) '
+                f'→ Final approach'
+            )
             self.alignment_start_time = 0.0
             if self.reverse_mode:
                 self.transition_to(self.REVERSE_FINAL_APPROACH)
@@ -298,72 +301,106 @@ class FixedQualificationNavigator(Node):
                 self.transition_to(self.FINAL_APPROACH)
             return cmd
         
-        # PURE ROTATION STRATEGY
+        # Pure rotation with minimal forward
         quality = abs(self.frame_position)
         
         if quality > 0.2:
-            # Far off - strong rotation, NO forward
             cmd.linear.x = 0.0
-            cmd.linear.y = 0.0  # NO SWAY!
+            cmd.linear.y = 0.0
             cmd.angular.z = -self.frame_position * self.alignment_yaw_gain
         elif quality > 0.1:
-            # Moderate - rotate + tiny forward
             cmd.linear.x = 0.1
-            cmd.linear.y = 0.0  # NO SWAY!
+            cmd.linear.y = 0.0
             cmd.angular.z = -self.frame_position * self.alignment_yaw_gain * 0.8
         else:
-            # Fine tuning
             cmd.linear.x = 0.15
-            cmd.linear.y = 0.0  # NO SWAY!
+            cmd.linear.y = 0.0
             cmd.angular.z = -self.frame_position * self.alignment_yaw_gain * 0.5
         
         return cmd
     
     def final_approach(self, cmd: Twist) -> Twist:
-        """Slow controlled approach from 3m to 1.2m"""
+        """CRITICAL: Maintain alignment while approaching"""
         if not self.gate_detected:
             cmd.linear.x = 0.1
             return cmd
         
-        # Commit to pass at trigger distance
+        # CRITICAL: Check alignment before committing
         if self.estimated_distance <= self.passing_trigger_distance:
-            if abs(self.frame_position) < 0.2:
-                self.get_logger().info(f'🚀 COMMITTING at {self.estimated_distance:.2f}m')
+            if abs(self.frame_position) < self.passing_alignment_requirement:
+                self.get_logger().info(
+                    f'🚀 COMMITTING at {self.estimated_distance:.2f}m '
+                    f'(align={self.frame_position:+.3f})'
+                )
                 self.passing_start_position = self.current_position
                 if self.reverse_mode:
                     self.transition_to(self.REVERSE_PASSING)
                 else:
                     self.transition_to(self.PASSING)
                 return cmd
+            else:
+                # TOO MISALIGNED - Emergency realignment
+                self.get_logger().error(
+                    f'🚨 ABORT COMMIT: Misaligned ({self.frame_position:+.3f}) '
+                    f'at trigger point! Emergency realign...'
+                )
+                cmd.linear.x = 0.0
+                cmd.angular.z = -self.frame_position * self.alignment_yaw_gain * 2.0
+                return cmd
         
-        # Maintain alignment while approaching
-        cmd.linear.x = self.final_approach_speed
-        cmd.linear.y = 0.0  # NO SWAY during approach
-        cmd.angular.z = -self.frame_position * self.alignment_yaw_gain * 0.3
+        # Check drift during approach
+        if abs(self.frame_position) > self.final_approach_threshold:
+            self.get_logger().warn(
+                f'⚠️ Drifting (pos={self.frame_position:+.3f}) - correcting',
+                throttle_duration_sec=0.5
+            )
+            cmd.linear.x = self.final_approach_speed * 0.6
+            cmd.angular.z = -self.frame_position * self.alignment_yaw_gain * 0.7
+        else:
+            cmd.linear.x = self.final_approach_speed
+            cmd.angular.z = -self.frame_position * self.alignment_yaw_gain * 0.3
         
         return cmd
     
     def passing(self, cmd: Twist) -> Twist:
-        """Full speed straight through - NO CORRECTIONS"""
+        """FULL SPEED PASSAGE - Monitor for severe misalignment"""
         if self.passing_start_position is None:
             self.passing_start_position = self.current_position
+            self.get_logger().info('🚀 PASSAGE STARTED - FULL SPEED!')
         
-        # Check if cleared gate using X-position
+        # CRITICAL: Emergency abort on severe misalignment during passage
+        if self.gate_detected and abs(self.frame_position) > 0.35:
+            self.get_logger().error(
+                f'🚨 SEVERE MISALIGNMENT during passage! '
+                f'pos={self.frame_position:+.3f} - ABORTING'
+            )
+            # Emergency stop and realign
+            cmd.linear.x = 0.0
+            cmd.angular.z = -self.frame_position * 2.0
+            return cmd
+        
+        # Check if cleared using X-position
         if self.current_position:
             current_x = self.current_position[0]
             
             if not self.reverse_mode:
-                # Forward: check if past gate + clearance
                 if current_x > (self.gate_x_position + self.gate_clearance_distance):
-                    self.get_logger().info('✅ FORWARD PASS COMPLETE')
+                    self.get_logger().info(
+                        f'✅ FORWARD PASS COMPLETE (X={current_x:.2f}m, '
+                        f'cleared by {current_x - self.gate_x_position:.2f}m)'
+                    )
+                    self.first_pass_complete = True
                     self.transition_to(self.CLEARING)
             else:
-                # Reverse: check if before gate - clearance
                 if current_x < (self.gate_x_position - self.gate_clearance_distance):
-                    self.get_logger().info('✅ REVERSE PASS COMPLETE')
+                    self.get_logger().info(
+                        f'✅ REVERSE PASS COMPLETE (X={current_x:.2f}m, '
+                        f'cleared by {abs(current_x - self.gate_x_position):.2f}m)'
+                    )
+                    self.second_pass_complete = True
                     self.transition_to(self.REVERSE_CLEARING)
         
-        # FULL SPEED - NO corrections
+        # FULL SPEED - minimal corrections
         cmd.linear.x = self.passing_speed
         cmd.linear.y = 0.0
         cmd.angular.z = 0.0
@@ -371,36 +408,66 @@ class FixedQualificationNavigator(Node):
         return cmd
     
     def clearing(self, cmd: Twist) -> Twist:
-        """Ensure fully past gate"""
+        """Ensure fully past gate before U-turn"""
         if self.current_position:
             current_x = self.current_position[0]
             
-            if current_x > (self.gate_x_position + 1.5):
-                self.get_logger().info('✅ CLEARED - Starting U-turn')
+            if current_x > (self.gate_x_position + 2.5):
+                self.get_logger().info('✅ FULLY CLEARED - Starting U-turn')
                 self.uturn_start_yaw = self.current_yaw
+                self.uturn_start_time = time.time()
                 self.transition_to(self.UTURN)
+                return cmd
         
-        cmd.linear.x = self.passing_speed
+        cmd.linear.x = self.passing_speed * 0.8
         return cmd
     
     def uturn(self, cmd: Twist) -> Twist:
-        """180° turn"""
+        """180° turn with timeout"""
         angle_turned = abs(self.normalize_angle(self.current_yaw - self.uturn_start_yaw))
+        elapsed = time.time() - self.uturn_start_time
         
-        if angle_turned > (math.pi - 0.15):
-            self.get_logger().info('✅ U-turn complete')
+        # Success condition
+        if angle_turned > (math.pi - 0.2):
+            self.get_logger().info(
+                f'✅ U-turn complete (turned {math.degrees(angle_turned):.0f}°, '
+                f'took {elapsed:.1f}s)'
+            )
             self.reverse_mode = True
             self.reverse_mode_pub.publish(Bool(data=True))
             self.transition_to(self.REVERSE_SEARCHING)
             return cmd
         
+        # Timeout check
+        if elapsed > 15.0:
+            self.get_logger().warn('⏰ U-turn timeout - proceeding anyway')
+            self.reverse_mode = True
+            self.reverse_mode_pub.publish(Bool(data=True))
+            self.transition_to(self.REVERSE_SEARCHING)
+            return cmd
+        
+        # U-turn execution
         cmd.linear.x = 0.2
         cmd.angular.z = 0.7
+        
+        if int(elapsed) % 2 == 0:
+            self.get_logger().info(
+                f'🔄 U-turning: {math.degrees(angle_turned):.0f}° / 180°',
+                throttle_duration_sec=1.9
+            )
+        
         return cmd
     
     def surfacing(self, cmd: Twist) -> Twist:
         if self.current_depth > -0.2:
-            self.get_logger().info('✅ SURFACED - COMPLETE')
+            self.get_logger().info('✅ SURFACED - MISSION COMPLETE!')
+            self.get_logger().info('='*70)
+            self.get_logger().info('🎉 QUALIFICATION COMPLETE!')
+            self.get_logger().info(f'   Pass 1: {"✅" if self.first_pass_complete else "❌"}')
+            self.get_logger().info(f'   Pass 2: {"✅" if self.second_pass_complete else "❌"}')
+            total_time = time.time() - self.mission_start_time
+            self.get_logger().info(f'   Total time: {total_time:.1f}s')
+            self.get_logger().info('='*70)
             self.transition_to(self.COMPLETED)
         cmd.linear.z = -0.5
         return cmd
