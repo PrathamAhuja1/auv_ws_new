@@ -167,12 +167,12 @@ class StableCenterDetector(Node):
         frame_position = 0.0
         confidence = 0.0
         
-        if estimated_distance < self.emergency_trigger_distance and len(posts) == 0:
+        if estimated_distance < self.emergency_trigger_distance and len(posts) == 0 and not self.gate_center_locked:
             if not self.emergency_straight_mode:
                 self.emergency_straight_mode = True
                 self.get_logger().warn('EMERGENCY: Gate lost at close range - proceeding straight')
         
-        if self.emergency_straight_mode:
+        if self.emergency_straight_mode and not self.gate_center_locked:
             gate_detected = True
             partial_gate = False
             confidence = 0.5
@@ -185,7 +185,7 @@ class StableCenterDetector(Node):
                        (w//2 - 200, h//2),
                        cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
             
-        elif self.gate_center_locked and estimated_distance < self.lock_distance_threshold:
+        elif self.gate_center_locked:
             gate_detected = True
             partial_gate = False
             confidence = 1.0
@@ -210,6 +210,11 @@ class StableCenterDetector(Node):
             cv2.putText(debug_img, f"Dist: {estimated_distance:.2f}m", 
                        (gate_center_x - 80, gate_center_y + 50),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+            
+            if len(posts) == 0 and estimated_distance < 1.5:
+                cv2.putText(debug_img, "POSTS OUT OF FRAME - USING LOCK", 
+                           (gate_center_x - 200, gate_center_y + 80),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
             
         elif len(posts) >= 2:
             posts_sorted = sorted(posts, key=lambda p: p['x_pos'])
@@ -253,11 +258,15 @@ class StableCenterDetector(Node):
                 
                 self.center_history.append((gate_center_x, gate_center_y))
                 
-                if not self.gate_center_locked and estimated_distance < self.lock_distance_threshold:
+                if not self.gate_center_locked and estimated_distance < 3.5 and confidence >= 0.9:
                     self.gate_center_locked = True
                     self.locked_center_x = gate_center_x
                     self.locked_center_y = gate_center_y
                     self.get_logger().info(f'CENTER LOCKED at {estimated_distance:.2f}m')
+                
+                if self.gate_center_locked:
+                    self.locked_center_x = gate_center_x
+                    self.locked_center_y = gate_center_y
                 
                 frame_position = (gate_center_x - w/2) / (w/2)
                 alignment_error = frame_position
