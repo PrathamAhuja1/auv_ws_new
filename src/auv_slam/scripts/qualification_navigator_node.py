@@ -47,7 +47,7 @@ class StableQualificationNavigator(Node):
         self.gate_x_position = 0.0
         
         self.auv_length = 0.46
-        self.gate_clearance_distance = 2.5
+        self.gate_clearance_distance = 1.5
         
         self.passing_start_time = None
         self.passing_timeout = 8.0
