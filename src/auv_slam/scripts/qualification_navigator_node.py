@@ -8,6 +8,7 @@ KEY FIXES:
 3. Strict U-turn with yaw verification
 4. No surfacing until mission complete
 5. Emergency straight mode when close to gate
+6. CRITICAL FIX: Proper passing_start_time initialization to prevent crashes
 """
 
 import rclpy
@@ -303,10 +304,11 @@ class StableQualificationNavigator(Node):
         if self.estimated_distance <= self.passing_trigger_distance:
             if abs(self.frame_position) < self.passing_alignment_requirement:
                 self.get_logger().info(
-                    f'COMMITTING at {self.estimated_distance:.2f}m '
-                    f'(align={self.frame_position:+.3f})'
+                    f'🚀 COMMITTING TO PASSAGE at {self.estimated_distance:.2f}m '
+                    f'(alignment={self.frame_position:+.3f})'
                 )
                 self.passing_start_position = self.current_position
+                self.passing_start_time = time.time()  # CRITICAL: Initialize timer here
                 if self.reverse_mode:
                     self.transition_to(self.REVERSE_PASSING)
                 else:
@@ -330,10 +332,13 @@ class StableQualificationNavigator(Node):
         return cmd
     
     def passing(self, cmd: Twist) -> Twist:
+        # CRITICAL FIX: Always ensure passing_start_time is initialized
+        if self.passing_start_time is None:
+            self.passing_start_time = time.time()
+            self.get_logger().info('PASSAGE STARTED - Timer initialized')
+        
         if self.passing_start_position is None:
             self.passing_start_position = self.current_position
-            self.passing_start_time = time.time()
-            self.get_logger().info('PASSAGE STARTED')
         
         if self.current_position and self.passing_start_position:
             dx = self.current_position[0] - self.passing_start_position[0]
@@ -349,7 +354,7 @@ class StableQualificationNavigator(Node):
                     )
                     self.first_pass_complete = True
                     self.passing_start_position = None
-                    self.passing_start_time = None
+                    self.passing_start_time = None  # Reset timer
                     self.transition_to(self.CLEARING)
                 else:
                     self.get_logger().info(
@@ -357,7 +362,7 @@ class StableQualificationNavigator(Node):
                     )
                     self.second_pass_complete = True
                     self.passing_start_position = None
-                    self.passing_start_time = None
+                    self.passing_start_time = None  # Reset timer
                     self.transition_to(self.REVERSE_CLEARING)
                 return cmd
             
@@ -368,12 +373,12 @@ class StableQualificationNavigator(Node):
                 if not self.reverse_mode:
                     self.first_pass_complete = True
                     self.passing_start_position = None
-                    self.passing_start_time = None
+                    self.passing_start_time = None  # Reset timer
                     self.transition_to(self.CLEARING)
                 else:
                     self.second_pass_complete = True
                     self.passing_start_position = None
-                    self.passing_start_time = None
+                    self.passing_start_time = None  # Reset timer
                     self.transition_to(self.REVERSE_CLEARING)
                 return cmd
             
