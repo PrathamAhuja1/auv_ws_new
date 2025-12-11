@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-OPTIMIZED Qualification Navigator - 1m Extra Clearance
+OPTIMIZED Qualification Navigator - 1.55m Total Clearance & Strict Depth
 Key changes:
-1. Reduced CLEARING travel from 2m to 1m extra
-2. Total clearance: 2m past gate (1m passage confirmation + 1m clearing)
-3. Flow: PASSING (1m) → CLEARING (1m) → UTURN
+1. Total clearance set to exactly 1.55m (0.55m Pass + 1.0m Clear)
+2. Strict depth control enabled during PASSING/CLEARING to prevent surfacing
+3. dynamic gate position update for accurate clearance
 """
 
 import rclpy
@@ -20,7 +20,7 @@ class OptimizedQualificationNavigator(Node):
     def __init__(self):
         super().__init__('qualification_navigator')
         
-        # State machine - WITH CLEARING (1m extra)
+        # State machine
         self.SUBMERGING = 0
         self.SEARCHING = 1
         self.APPROACHING = 2
@@ -40,16 +40,21 @@ class OptimizedQualificationNavigator(Node):
         
         self.state = self.SUBMERGING
         
-        # Gate position and clearance
+        # Gate position (will be updated dynamically)
         self.gate_x_position = 0.0
         self.mission_depth = -0.8
         
         # AUV dimensions
         self.auv_length = 0.46
         
-        # OPTIMIZED: Just 1m clearance past gate (no extra travel)
-        self.forward_clearance_x = self.gate_x_position + 0.55
-        self.reverse_clearance_x = self.gate_x_position - 0.55
+        # Clearance Settings
+        # Pass: 0.55m past gate (clears the robot)
+        # Clear: +1.0m extra (total 1.55m)
+        self.pass_margin = 0.55
+        self.clear_margin = 1.0
+        
+        self.forward_clearance_x = 0.0 # Updated on commit
+        self.reverse_clearance_x = 0.0 # Updated on commit
         
         # Parameters
         self.declare_parameter('search_forward_speed', 0.4)
@@ -115,14 +120,12 @@ class OptimizedQualificationNavigator(Node):
         self.create_timer(0.05, self.control_loop)
         
         self.get_logger().info('='*70)
-        self.get_logger().info('Qualification Navigator')
+        self.get_logger().info('Qualification Navigator - 1.55m FIXED')
         self.get_logger().info('='*70)
-        self.get_logger().info(f'   Initial clearance: 1.0m (passage confirmation)')
-        self.get_logger().info(f'   Extra clearance: 1.0m (CLEARING state)')
-        self.get_logger().info(f'   Total travel past gate: 2.0m')
-        self.get_logger().info(f'   Forward clear point: X > {self.forward_clearance_x:.2f}m')
-        self.get_logger().info(f'   Reverse clear point: X < {self.reverse_clearance_x:.2f}m')
-        self.get_logger().info(f'   Flow: PASSING → CLEARING (+1m) → UTURN/SURFACE')
+        self.get_logger().info(f'   Pass Margin: {self.pass_margin}m')
+        self.get_logger().info(f'   Clear Margin: {self.clear_margin}m')
+        self.get_logger().info(f'   Total Travel: {self.pass_margin + self.clear_margin}m')
+        self.get_logger().info(f'   Depth Control: STRICT (prevents surfacing)')
         self.get_logger().info('='*70)
     
     def gate_cb(self, msg: Bool):
@@ -161,10 +164,9 @@ class OptimizedQualificationNavigator(Node):
     def control_loop(self):
         cmd = Twist()
         
-        if self.state == self.PASSING or self.state == self.REVERSE_PASSING:
-            cmd.linear.z = self.gentle_depth_control(self.mission_depth)
-        else:
-            cmd.linear.z = self.depth_control(self.mission_depth)
+        # Always use STRICT depth control to prevent surfacing
+        # gentle_depth_control removed to stop bot from hitting top of gate
+        cmd.linear.z = self.depth_control(self.mission_depth)
         
         if self.state == self.SUBMERGING:
             cmd = self.submerge(cmd)
@@ -204,29 +206,20 @@ class OptimizedQualificationNavigator(Node):
     
     def depth_control(self, target_depth: float) -> float:
         depth_error = target_depth - self.current_depth
-        deadband = 0.15
+        deadband = 0.15 # Tighter deadband
         
         if abs(depth_error) < deadband:
             return 0.0
         
+        # Stronger response to prevent surfacing
         if abs(depth_error) < 0.4:
-            z_cmd = depth_error * 0.4
+            z_cmd = depth_error * 0.6 # Increased gain
         elif abs(depth_error) < 0.8:
-            z_cmd = depth_error * 0.6
-        else:
             z_cmd = depth_error * 0.8
+        else:
+            z_cmd = depth_error * 1.0
         
-        return max(-0.6, min(z_cmd, 0.6))
-    
-    def gentle_depth_control(self, target_depth: float) -> float:
-        depth_error = target_depth - self.current_depth
-        deadband = 0.25
-        
-        if abs(depth_error) < deadband:
-            return 0.0
-        
-        z_cmd = depth_error * 0.2
-        return max(-0.3, min(z_cmd, 0.3))
+        return max(-0.7, min(z_cmd, 0.7))
     
     def submerge(self, cmd: Twist) -> Twist:
         if abs(self.mission_depth - self.current_depth) < 0.3:
@@ -338,9 +331,20 @@ class OptimizedQualificationNavigator(Node):
         
         if self.estimated_distance <= self.passing_trigger_distance:
             if abs(self.frame_position) < 0.15:
-                self.get_logger().info(
-                    f'COMMITTING TO PASSAGE at {self.estimated_distance:.2f}m (alignment={self.frame_position:+.3f})'
-                )
+                
+                # UPDATE GATE POSITION AND TARGETS
+                if self.current_position:
+                    # Update gate X based on current pos + distance
+                    # NOTE: Simplified assumption that we are aligned with X axis
+                    self.gate_x_position = self.current_position[0] + self.estimated_distance
+                    
+                    self.forward_clearance_x = self.gate_x_position + self.pass_margin
+                    self.reverse_clearance_x = self.gate_x_position - self.pass_margin
+                    
+                    self.get_logger().info(
+                        f'COMMITTING at {self.estimated_distance:.2f}m. Gate set at X={self.gate_x_position:.2f}'
+                    )
+                
                 self.passing_start_position = self.current_position
                 if self.reverse_mode:
                     self.transition_to(self.REVERSE_PASSING)
@@ -353,10 +357,6 @@ class OptimizedQualificationNavigator(Node):
                 return cmd
         
         if abs(self.frame_position) > self.final_approach_threshold:
-            self.get_logger().warn(
-                f'Drifting (pos={self.frame_position:+.3f}) - correcting',
-                throttle_duration_sec=0.5
-            )
             cmd.linear.x = self.final_approach_speed * 0.6
             cmd.angular.z = -self.frame_position * 3.0
         else:
@@ -367,42 +367,27 @@ class OptimizedQualificationNavigator(Node):
     
     def passing(self, cmd: Twist) -> Twist:
         """
-        PASSING - Check for 1m clearance, then go to CLEARING
+        PASSING - Cross the gate plane (+0.55m)
         """
         if self.passing_start_position is None:
             self.passing_start_position = self.current_position
-            self.get_logger().info('PASSAGE STARTED - FORWARD')
         
         if self.current_position:
             current_x = self.current_position[0]
             clearance_needed = self.forward_clearance_x
             distance_to_clearance = clearance_needed - current_x
             
-            # Check if cleared by 1m
+            # Check if cleared gate plane
             if current_x > clearance_needed:
-                if self.passing_start_position:
-                    dx = self.current_position[0] - self.passing_start_position[0]
-                    dy = self.current_position[1] - self.passing_start_position[1]
-                    distance_traveled = math.sqrt(dx*dx + dy*dy)
-                    
-                    self.get_logger().info('='*70)
-                    self.get_logger().info('✅ FORWARD PASS COMPLETE - 1m clearance')
-                    self.get_logger().info(f'   Current X: {current_x:.2f}m')
-                    self.get_logger().info(f'   Gate at: {self.gate_x_position:.2f}m')
-                    self.get_logger().info(f'   Clearance: {current_x - self.gate_x_position:.2f}m')
-                    self.get_logger().info(f'   Distance: {distance_traveled:.2f}m')
-                    self.get_logger().info('='*70)
-                
                 self.first_pass_complete = True
                 self.passing_start_position = None
                 
-                # Go to CLEARING for extra 1m
+                self.get_logger().info('✅ GATE CROSSED - Moving to CLEARANCE')
                 self.transition_to(self.CLEARING)
                 return cmd
             
-            # Show progress
             self.get_logger().info(
-                f'PASSING (FORWARD): X={current_x:.2f}m, need {clearance_needed:.2f}m, {abs(distance_to_clearance):.2f}m to go',
+                f'PASSING (FORWARD): X={current_x:.2f}m, need {clearance_needed:.2f}m',
                 throttle_duration_sec=0.4
             )
         
@@ -414,23 +399,26 @@ class OptimizedQualificationNavigator(Node):
     
     def clearing(self, cmd: Twist) -> Twist:
         """
-        CLEARING - Travel extra 1m past gate before U-turn
+        CLEARING - Travel extra 1.0m past gate (Total 1.55m)
         """
         if self.current_position:
             current_x = self.current_position[0]
             
-            # OPTIMIZED: Only 1m extra (was 2m)
-            clearance_needed = self.forward_clearance_x + 1.0
+            # Add clear_margin to the existing forward_clearance
+            # Total = Gate + 0.55 + 1.0 = Gate + 1.55m
+            clearance_needed = self.forward_clearance_x + self.clear_margin
             
             if current_x > clearance_needed:
-                self.get_logger().info(f'Fully cleared (X={current_x:.2f}m, +{current_x - self.gate_x_position:.2f}m past gate) - U-turn')
+                total_past_gate = current_x - self.gate_x_position
+                self.get_logger().info(f'FULLY CLEARED (Total {total_past_gate:.2f}m past gate) - U-turn')
+                
                 self.uturn_start_yaw = self.current_yaw
                 self.uturn_start_time = time.time()
                 self.transition_to(self.UTURN)
                 return cmd
             
             self.get_logger().info(
-                f'CLEARING: X={current_x:.2f}m, need {clearance_needed:.2f}m, {clearance_needed - current_x:.2f}m to go',
+                f'CLEARING: X={current_x:.2f}m, need {clearance_needed:.2f}m',
                 throttle_duration_sec=0.5
             )
         
@@ -439,68 +427,51 @@ class OptimizedQualificationNavigator(Node):
     
     def reverse_passing(self, cmd: Twist) -> Twist:
         """
-        REVERSE PASSING - Check for 1m clearance, then go to REVERSE_CLEARING
+        REVERSE PASSING - Cross gate plane backwards
         """
         if self.passing_start_position is None:
             self.passing_start_position = self.current_position
-            self.get_logger().info('PASSAGE STARTED - REVERSE')
         
         if self.current_position:
             current_x = self.current_position[0]
             clearance_needed = self.reverse_clearance_x
-            distance_to_clearance = current_x - clearance_needed
             
-            # Check if cleared by 1m
+            # Check if cleared gate plane
             if current_x < clearance_needed:
-                if self.passing_start_position:
-                    dx = self.current_position[0] - self.passing_start_position[0]
-                    dy = self.current_position[1] - self.passing_start_position[1]
-                    distance_traveled = math.sqrt(dx*dx + dy*dy)
-                    
-                    self.get_logger().info('='*70)
-                    self.get_logger().info('✅ REVERSE PASS COMPLETE - 1m clearance')
-                    self.get_logger().info(f'   Current X: {current_x:.2f}m')
-                    self.get_logger().info(f'   Gate at: {self.gate_x_position:.2f}m')
-                    self.get_logger().info(f'   Clearance: {abs(current_x - self.gate_x_position):.2f}m')
-                    self.get_logger().info(f'   Distance: {distance_traveled:.2f}m')
-                    self.get_logger().info('='*70)
-                
                 self.second_pass_complete = True
                 self.passing_start_position = None
                 
-                # Go to REVERSE_CLEARING for extra 1m
+                self.get_logger().info('✅ GATE CROSSED (REVERSE) - Moving to CLEARANCE')
                 self.transition_to(self.REVERSE_CLEARING)
                 return cmd
             
-            # Show progress
             self.get_logger().info(
-                f'PASSING (REVERSE): X={current_x:.2f}m, need {clearance_needed:.2f}m, {abs(distance_to_clearance):.2f}m to go',
+                f'PASSING (REVERSE): X={current_x:.2f}m, need {clearance_needed:.2f}m',
                 throttle_duration_sec=0.4
             )
         
-        # Full speed straight ahead
         cmd.linear.x = self.passing_speed
         cmd.angular.z = 0.0
-        
         return cmd
     
     def reverse_clearing(self, cmd: Twist) -> Twist:
         """
-        REVERSE CLEARING - Travel extra 1m past gate before surfacing
+        REVERSE CLEARING - Travel extra 1.0m then surface
         """
         if self.current_position:
             current_x = self.current_position[0]
             
-            # OPTIMIZED: Only 1m extra (was 2m)
-            clearance_needed = self.reverse_clearance_x - 1.0
+            # Total = Gate - 0.55 - 1.0 = Gate - 1.55m
+            clearance_needed = self.reverse_clearance_x - self.clear_margin
             
             if current_x < clearance_needed:
-                self.get_logger().info(f'Reverse fully cleared (X={current_x:.2f}m, {abs(current_x - self.gate_x_position):.2f}m past gate) - Surfacing')
+                total_past_gate = abs(current_x - self.gate_x_position)
+                self.get_logger().info(f'REVERSE CLEARED (Total {total_past_gate:.2f}m) - Surfacing')
                 self.transition_to(self.SURFACING)
                 return cmd
             
             self.get_logger().info(
-                f'REVERSE CLEARING: X={current_x:.2f}m, need {clearance_needed:.2f}m, {abs(current_x - clearance_needed):.2f}m to go',
+                f'REVERSE CLEARING: X={current_x:.2f}m, need {clearance_needed:.2f}m',
                 throttle_duration_sec=0.5
             )
         
@@ -508,23 +479,16 @@ class OptimizedQualificationNavigator(Node):
         return cmd
     
     def uturn(self, cmd: Twist) -> Twist:
-        """
-        OPTIMIZED U-TURN - Fast 180° rotation
-        """
         angle_turned = abs(self.normalize_angle(self.current_yaw - self.uturn_start_yaw))
         elapsed = time.time() - self.uturn_start_time
         
-        # Check if 180° turn complete
         if angle_turned > (math.pi - 0.2):
-            self.get_logger().info(
-                f'U-turn complete (turned {math.degrees(angle_turned):.0f}°, {elapsed:.1f}s)'
-            )
+            self.get_logger().info(f'U-turn complete (turned {math.degrees(angle_turned):.0f}°, {elapsed:.1f}s)')
             self.reverse_mode = True
             self.reverse_mode_pub.publish(Bool(data=True))
             self.transition_to(self.REVERSE_SEARCHING)
             return cmd
         
-        # Timeout safety
         if elapsed > 15.0:
             self.get_logger().warn('U-turn timeout')
             self.reverse_mode = True
@@ -532,10 +496,8 @@ class OptimizedQualificationNavigator(Node):
             self.transition_to(self.REVERSE_SEARCHING)
             return cmd
         
-        # Fast rotation with slight forward motion
         cmd.linear.x = 0.2
         cmd.angular.z = 0.7
-        
         return cmd
     
     def surfacing(self, cmd: Twist) -> Twist:
@@ -569,7 +531,6 @@ class OptimizedQualificationNavigator(Node):
         return cmd
     
     def completed(self, cmd: Twist) -> Twist:
-        """Mission complete - all stop"""
         cmd.linear.x = 0.0
         cmd.linear.y = 0.0
         cmd.linear.z = 0.0
@@ -577,13 +538,11 @@ class OptimizedQualificationNavigator(Node):
         return cmd
     
     def transition_to(self, new_state: int):
-        """Transition to new state"""
         self.state = new_state
         self.state_start_time = time.time()
         self.get_logger().info(f'STATE: {self.get_state_name()}')
     
     def get_state_name(self) -> str:
-        """Get human-readable state name"""
         names = {
             self.SUBMERGING: 'SUBMERGING',
             self.SEARCHING: 'SEARCHING',
@@ -606,7 +565,6 @@ class OptimizedQualificationNavigator(Node):
     
     @staticmethod
     def normalize_angle(angle: float) -> float:
-        """Normalize angle to [-pi, pi]"""
         while angle > math.pi:
             angle -= 2 * math.pi
         while angle < -math.pi:
