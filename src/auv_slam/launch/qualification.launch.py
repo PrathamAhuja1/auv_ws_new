@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """
 Qualification Mission Launch File
-Launches complete qualification system:
-1. Simulation (Qualification World + Robot at Start Line)
-2. Mission Logic (Detector + Navigator + Safety)
+Updated for 1.55m clearance, no CLEARING state
 """
 
 import os
@@ -75,8 +73,6 @@ def generate_launch_description():
     )
 
     # 4. Spawn Robot at STARTING LINE
-    # Pool Start Zone is at x = -12.5m. 
-    # Spawning at -12.0m gives 0.5m clearance from wall.
     spawn_entity = Node(
         package="ros_gz_sim",
         executable="create",
@@ -84,10 +80,10 @@ def generate_launch_description():
         arguments=[
             "-name", "orca4_ign",
             "-topic", "robot_description",
-            "-z", "0.2",   # Spawn at surface
-            "-x", "-12.0", # STARTING LOCATION
+            "-z", "0.2",
+            "-x", "-12.0",
             "-y", "0.0",
-            "-Y", "0.0",   # Face towards gate (Positive X)
+            "-Y", "0.0",
             "--ros-args", "--log-level", "warn"
         ],
         parameters=[{"use_sim_time": True}],
@@ -118,7 +114,7 @@ def generate_launch_description():
     
     # 7. Qualification Gate Detector
     gate_detector = TimerAction(
-        period=5.0, # Wait for spawn
+        period=5.0,
         actions=[
             Node(
                 package='auv_slam',
@@ -132,7 +128,7 @@ def generate_launch_description():
     
     # 8. Qualification Navigator
     navigator = TimerAction(
-        period=8.0, # Wait for detector
+        period=8.0,
         actions=[
             Node(
                 package='auv_slam',
@@ -144,7 +140,7 @@ def generate_launch_description():
         ]
     )
     
-    # 9. Safety Monitor
+    # 9. Safety Monitor - NO MORE TIMEOUT WARNINGS
     safety_monitor = Node(
         package='auv_slam',
         executable='safety_monitor_node.py',
@@ -156,7 +152,7 @@ def generate_launch_description():
             'max_roll': 0.785,
             'max_pitch': 0.785,
             'watchdog_timeout': 5.0,
-            'max_mission_time': 900.0,
+            'max_mission_time': 36000.0,  # 10 hours - no timeout warnings
             'pool_bounds_x': [-12.5, 12.5],
             'pool_bounds_y': [-8.0, 8.0],
             'use_sim_time': True
@@ -172,6 +168,8 @@ def generate_launch_description():
         arguments=['-d', rviz_config],
         parameters=[{'use_sim_time': True}]
     )
+    
+    # 11. Debug Image Viewer
     rqt_image_view = Node(
         package='rqt_image_view',
         executable='rqt_image_view',

@@ -48,8 +48,8 @@ class OptimizedQualificationNavigator(Node):
         self.auv_length = 0.46
         
         # OPTIMIZED: Just 1m clearance past gate (no extra travel)
-        self.forward_clearance_x = self.gate_x_position + 1.0
-        self.reverse_clearance_x = self.gate_x_position - 1.0
+        self.forward_clearance_x = self.gate_x_position + 0.55
+        self.reverse_clearance_x = self.gate_x_position - 0.55
         
         # Parameters
         self.declare_parameter('search_forward_speed', 0.4)
@@ -115,7 +115,7 @@ class OptimizedQualificationNavigator(Node):
         self.create_timer(0.05, self.control_loop)
         
         self.get_logger().info('='*70)
-        self.get_logger().info('✅ OPTIMIZED Qualification Navigator')
+        self.get_logger().info('Qualification Navigator')
         self.get_logger().info('='*70)
         self.get_logger().info(f'   Initial clearance: 1.0m (passage confirmation)')
         self.get_logger().info(f'   Extra clearance: 1.0m (CLEARING state)')
