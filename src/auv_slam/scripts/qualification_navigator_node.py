@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+"""
+FIXED Qualification Navigator - No Timeout, 0.55m Clearance
+Implements proper qualification sequence per SAUVC rules
+"""
 
 import rclpy
 from rclpy.node import Node
@@ -9,7 +13,7 @@ import time
 import math
 
 
-class FixedQualificationNavigator(Node):
+class QualificationNavigator(Node):
     def __init__(self):
         super().__init__('qualification_navigator')
         
@@ -40,13 +44,15 @@ class FixedQualificationNavigator(Node):
         # CRITICAL: AUV dimensions
         self.auv_length = 0.46  # meters
         
-        # CRITICAL FIX: Clearance distance must ensure BACK of AUV crosses gate
-        # Gate at X=0, AUV front must reach X > 0 + auv_length
-        self.forward_clearance_x = self.gate_x_position + self.auv_length + 0.3  # Extra margin
-        self.reverse_clearance_x = self.gate_x_position - self.auv_length - 0.3
+        # CRITICAL FIX: Clearance = AUV length + 0.55m extra
+        # This ensures AUV's back passes gate + travels 0.55m more
+        self.clearance_margin = 0.55  # Extra distance after back passes
         
-        # Increase timeout (was 8s, now 15s)
-        self.passing_timeout = 15.0
+        # Forward pass: AUV must reach X > (gate_x + auv_length + 0.55)
+        self.forward_clearance_x = self.gate_x_position + self.auv_length + self.clearance_margin
+        
+        # Reverse pass: AUV must reach X < (gate_x - auv_length - 0.55)
+        self.reverse_clearance_x = self.gate_x_position - self.auv_length - self.clearance_margin
         
         # Parameters
         self.declare_parameter('search_forward_speed', 0.4)
@@ -80,7 +86,6 @@ class FixedQualificationNavigator(Node):
         self.current_yaw = 0.0
         
         self.passing_start_position = None
-        self.passing_start_time = None
         self.alignment_start_time = 0.0
         self.state_start_time = time.time()
         self.mission_start_time = time.time()
@@ -107,13 +112,14 @@ class FixedQualificationNavigator(Node):
         self.create_timer(0.05, self.control_loop)
         
         self.get_logger().info('='*70)
-        self.get_logger().info('✅ FIXED Qualification Navigator')
+        self.get_logger().info('✅ QUALIFICATION NAVIGATOR - SAUVC COMPLIANT')
         self.get_logger().info('='*70)
         self.get_logger().info(f'   AUV length: {self.auv_length}m')
         self.get_logger().info(f'   Gate at X={self.gate_x_position}m')
+        self.get_logger().info(f'   Clearance margin: {self.clearance_margin}m (after back passes)')
         self.get_logger().info(f'   Forward clearance: X > {self.forward_clearance_x:.2f}m')
         self.get_logger().info(f'   Reverse clearance: X < {self.reverse_clearance_x:.2f}m')
-        self.get_logger().info(f'   Passing timeout: {self.passing_timeout}s (increased)')
+        self.get_logger().info('   NO TIMEOUT - Will run until completion')
         self.get_logger().info('='*70)
     
     def gate_cb(self, msg: Bool):
@@ -147,12 +153,10 @@ class FixedQualificationNavigator(Node):
     def control_loop(self):
         cmd = Twist()
         
-        # CRITICAL FIX: Reduce depth control aggressiveness during passage
+        # Gentle depth control during passage, normal otherwise
         if self.state == self.PASSING or self.state == self.REVERSE_PASSING:
-            # Minimal depth control during passage (don't fight forward motion)
             cmd.linear.z = self.gentle_depth_control(self.mission_depth)
         else:
-            # Normal depth control
             cmd.linear.z = self.depth_control(self.mission_depth)
         
         # State machine
@@ -210,28 +214,27 @@ class FixedQualificationNavigator(Node):
         return max(-0.6, min(z_cmd, 0.6))
     
     def gentle_depth_control(self, target_depth: float) -> float:
-        """GENTLE depth control during passage (don't fight forward motion)"""
+        """Gentle depth control during passage"""
         depth_error = target_depth - self.current_depth
-        deadband = 0.25  # Larger deadband
+        deadband = 0.25
         
         if abs(depth_error) < deadband:
             return 0.0
         
-        # Much gentler control
         z_cmd = depth_error * 0.2
         return max(-0.3, min(z_cmd, 0.3))
     
     def submerge(self, cmd: Twist) -> Twist:
         if abs(self.mission_depth - self.current_depth) < 0.3:
             if time.time() - self.state_start_time > 3.0:
-                self.get_logger().info('Submerged - starting search')
+                self.get_logger().info('✅ Submerged - starting search')
                 self.reverse_mode_pub.publish(Bool(data=self.reverse_mode))
                 self.transition_to(self.SEARCHING)
         return cmd
     
     def searching(self, cmd: Twist) -> Twist:
         if self.gate_detected and self.estimated_distance < 999:
-            self.get_logger().info(f'Gate found at {self.estimated_distance:.2f}m')
+            self.get_logger().info(f'🎯 Gate found at {self.estimated_distance:.2f}m')
             if self.reverse_mode:
                 self.transition_to(self.REVERSE_APPROACHING)
             else:
@@ -249,7 +252,7 @@ class FixedQualificationNavigator(Node):
             return cmd
         
         if self.estimated_distance <= self.approach_stop_distance:
-            self.get_logger().info(f'Reached 3m - ALIGNING (pos={self.frame_position:+.3f})')
+            self.get_logger().info(f'🛑 Reached 3m - ALIGNING (pos={self.frame_position:+.3f})')
             if self.reverse_mode:
                 self.transition_to(self.REVERSE_ALIGNING)
             else:
@@ -269,12 +272,12 @@ class FixedQualificationNavigator(Node):
         
         if self.alignment_start_time == 0.0:
             self.alignment_start_time = time.time()
-            self.get_logger().info(f'ALIGNING at 3m (pos={self.frame_position:+.3f})')
+            self.get_logger().info(f'🎯 ALIGNING at 3m (pos={self.frame_position:+.3f})')
         
         elapsed = time.time() - self.alignment_start_time
         
         if elapsed > self.alignment_max_time:
-            self.get_logger().warn('Alignment timeout - proceeding')
+            self.get_logger().warn('⏰ Alignment timeout - proceeding')
             self.alignment_start_time = 0.0
             if self.reverse_mode:
                 self.transition_to(self.REVERSE_FINAL_APPROACH)
@@ -286,7 +289,7 @@ class FixedQualificationNavigator(Node):
         has_confidence = self.confidence > 0.8
         
         if is_well_aligned and has_confidence:
-            self.get_logger().info(f'ALIGNED (pos={self.frame_position:+.3f}, {elapsed:.1f}s)')
+            self.get_logger().info(f'✅ ALIGNED (pos={self.frame_position:+.3f}, {elapsed:.1f}s)')
             self.alignment_start_time = 0.0
             if self.reverse_mode:
                 self.transition_to(self.REVERSE_FINAL_APPROACH)
@@ -316,7 +319,6 @@ class FixedQualificationNavigator(Node):
                     f'(alignment={self.frame_position:+.3f})'
                 )
                 self.passing_start_position = self.current_position
-                self.passing_start_time = time.time()
                 if self.reverse_mode:
                     self.transition_to(self.REVERSE_PASSING)
                 else:
@@ -338,111 +340,90 @@ class FixedQualificationNavigator(Node):
     
     def passing(self, cmd: Twist) -> Twist:
         """
-        CRITICAL FIX: Use ABSOLUTE X-position for clearance detection
+        PASSING STATE: Full speed through gate
+        Transitions to CLEARING when AUV's BACK passes the gate plane
         """
-        if self.passing_start_time is None:
-            self.passing_start_time = time.time()
-            self.get_logger().info('🚀 PASSAGE STARTED')
-        
         if self.passing_start_position is None:
             self.passing_start_position = self.current_position
+            direction = "REVERSE" if self.reverse_mode else "FORWARD"
+            self.get_logger().info(f'🚀 {direction} PASSAGE STARTED')
         
         if self.current_position:
             current_x = self.current_position[0]
-            elapsed = time.time() - self.passing_start_time
             
-            # CRITICAL: Determine clearance based on direction and ABSOLUTE position
+            # Determine if AUV's BACK has passed the gate
             if not self.reverse_mode:
-                # Forward pass: Need to reach X > forward_clearance_x
-                clearance_needed = self.forward_clearance_x
-                distance_to_clearance = clearance_needed - current_x
-                cleared = current_x > clearance_needed
-                direction = "FORWARD"
+                # Forward: back is at (current_x - auv_length)
+                auv_back_x = current_x - self.auv_length
+                back_passed = auv_back_x > self.gate_x_position
             else:
-                # Reverse pass: Need to reach X < reverse_clearance_x
-                clearance_needed = self.reverse_clearance_x
-                distance_to_clearance = current_x - clearance_needed
-                cleared = current_x < clearance_needed
-                direction = "REVERSE"
+                # Reverse: back is at (current_x + auv_length)
+                auv_back_x = current_x + self.auv_length
+                back_passed = auv_back_x < self.gate_x_position
             
-            # Check if cleared
-            if cleared:
-                if self.passing_start_position:
-                    dx = self.current_position[0] - self.passing_start_position[0]
-                    dy = self.current_position[1] - self.passing_start_position[1]
-                    distance_traveled = math.sqrt(dx*dx + dy*dy)
-                    
-                    self.get_logger().info('='*70)
-                    self.get_logger().info(f'✅ {direction} PASS COMPLETE!')
-                    self.get_logger().info(f'   Current X: {current_x:.2f}m')
-                    self.get_logger().info(f'   Clearance needed: {clearance_needed:.2f}m')
-                    self.get_logger().info(f'   Beyond gate: {abs(distance_to_clearance):.2f}m')
-                    self.get_logger().info(f'   Distance traveled: {distance_traveled:.2f}m')
-                    self.get_logger().info(f'   Time: {elapsed:.1f}s')
-                    self.get_logger().info('='*70)
+            # Transition to CLEARING as soon as back passes
+            if back_passed:
+                self.get_logger().info('='*70)
+                self.get_logger().info(f'✅ AUV BACK PASSED GATE!')
+                self.get_logger().info(f'   Current position: X={current_x:.2f}m')
+                self.get_logger().info(f'   AUV back at: X={auv_back_x:.2f}m')
+                self.get_logger().info(f'   Gate at: X={self.gate_x_position:.2f}m')
+                self.get_logger().info(f'   → Entering CLEARING (0.55m more)')
+                self.get_logger().info('='*70)
                 
                 if not self.reverse_mode:
                     self.first_pass_complete = True
-                    self.passing_start_position = None
-                    self.passing_start_time = None
                     self.transition_to(self.CLEARING)
                 else:
                     self.second_pass_complete = True
-                    self.passing_start_position = None
-                    self.passing_start_time = None
                     self.transition_to(self.REVERSE_CLEARING)
                 return cmd
             
-            # Timeout check (now 15s instead of 8s)
-            if elapsed > self.passing_timeout:
-                self.get_logger().error('='*70)
-                self.get_logger().error(f'❌ PASSING TIMEOUT after {elapsed:.1f}s!')
-                self.get_logger().error(f'   Current X: {current_x:.2f}m')
-                self.get_logger().error(f'   Needed: {clearance_needed:.2f}m')
-                self.get_logger().error(f'   Still need: {abs(distance_to_clearance):.2f}m more')
-                self.get_logger().error('   This means AUV did NOT fully pass through gate!')
-                self.get_logger().error('='*70)
-                
-                # Don't assume complete - transition to clearing anyway
-                if not self.reverse_mode:
-                    self.passing_start_position = None
-                    self.passing_start_time = None
-                    self.transition_to(self.CLEARING)
-                else:
-                    self.passing_start_position = None
-                    self.passing_start_time = None
-                    self.transition_to(self.REVERSE_CLEARING)
-                return cmd
-            
-            # Progress logging every 0.5s
-            if int(elapsed * 10) % 5 == 0:
-                self.get_logger().info(
-                    f'🚀 PASSING ({direction}): X={current_x:.2f}m, '
-                    f'need {clearance_needed:.2f}m, '
-                    f'{abs(distance_to_clearance):.2f}m to go, '
-                    f'{elapsed:.1f}s',
-                    throttle_duration_sec=0.4
-                )
+            # Show progress
+            distance_to_gate = abs(current_x - self.gate_x_position)
+            direction = "FORWARD" if not self.reverse_mode else "REVERSE"
+            self.get_logger().info(
+                f'🚀 PASSING ({direction}): X={current_x:.2f}m, '
+                f'gate at {self.gate_x_position:.2f}m, '
+                f'{distance_to_gate:.2f}m to gate',
+                throttle_duration_sec=0.5
+            )
         
-        # FULL SPEED - minimal corrections
+        # Full speed straight ahead
         cmd.linear.x = self.passing_speed
         cmd.angular.z = 0.0
         
         return cmd
     
     def clearing(self, cmd: Twist) -> Twist:
+        """
+        CLEARING STATE: Travel 0.55m more after back passes gate
+        """
         if self.current_position:
             current_x = self.current_position[0]
             
-            # Extra clearance before U-turn
-            clearance_needed = self.forward_clearance_x + 2.0
-            
-            if current_x > clearance_needed:
-                self.get_logger().info(f'Fully cleared (X={current_x:.2f}m) - U-turn')
+            # Check if we've traveled clearance_margin past gate
+            if current_x >= self.forward_clearance_x:
+                distance_past = current_x - self.gate_x_position
+                self.get_logger().info('='*70)
+                self.get_logger().info(f'✅ CLEARANCE COMPLETE!')
+                self.get_logger().info(f'   Current X: {current_x:.2f}m')
+                self.get_logger().info(f'   Distance past gate: {distance_past:.2f}m')
+                self.get_logger().info(f'   → Starting U-TURN')
+                self.get_logger().info('='*70)
+                
                 self.uturn_start_yaw = self.current_yaw
                 self.uturn_start_time = time.time()
                 self.transition_to(self.UTURN)
                 return cmd
+            
+            # Show progress
+            distance_needed = self.forward_clearance_x - current_x
+            self.get_logger().info(
+                f'🏃 CLEARING: X={current_x:.2f}m, '
+                f'need {distance_needed:.2f}m more',
+                throttle_duration_sec=0.4
+            )
         
         cmd.linear.x = 0.8
         return cmd
@@ -452,16 +433,12 @@ class FixedQualificationNavigator(Node):
         elapsed = time.time() - self.uturn_start_time
         
         if angle_turned > (math.pi - 0.2):
+            self.get_logger().info('='*70)
             self.get_logger().info(
-                f'U-turn complete (turned {math.degrees(angle_turned):.0f}deg, {elapsed:.1f}s)'
+                f'✅ U-TURN COMPLETE (turned {math.degrees(angle_turned):.0f}°, {elapsed:.1f}s)'
             )
-            self.reverse_mode = True
-            self.reverse_mode_pub.publish(Bool(data=True))
-            self.transition_to(self.REVERSE_SEARCHING)
-            return cmd
-        
-        if elapsed > 15.0:
-            self.get_logger().warn('U-turn timeout')
+            self.get_logger().info('   → Starting REVERSE pass')
+            self.get_logger().info('='*70)
             self.reverse_mode = True
             self.reverse_mode_pub.publish(Bool(data=True))
             self.transition_to(self.REVERSE_SEARCHING)
@@ -470,34 +447,56 @@ class FixedQualificationNavigator(Node):
         cmd.linear.x = 0.2
         cmd.angular.z = 0.7
         
+        self.get_logger().info(
+            f'🔄 U-TURN: {math.degrees(angle_turned):.0f}° / 180°',
+            throttle_duration_sec=0.5
+        )
+        
         return cmd
     
     def reverse_clearing(self, cmd: Twist) -> Twist:
+        """
+        REVERSE CLEARING: Travel 0.55m more after back passes gate (reverse direction)
+        """
         if self.current_position:
             current_x = self.current_position[0]
             
-            clearance_needed = self.reverse_clearance_x - 2.0
-            
-            if current_x < clearance_needed:
-                self.get_logger().info(f'Reverse fully cleared (X={current_x:.2f}m) - Surfacing')
+            if current_x <= self.reverse_clearance_x:
+                distance_past = self.gate_x_position - current_x
+                self.get_logger().info('='*70)
+                self.get_logger().info(f'✅ REVERSE CLEARANCE COMPLETE!')
+                self.get_logger().info(f'   Current X: {current_x:.2f}m')
+                self.get_logger().info(f'   Distance past gate: {distance_past:.2f}m')
+                self.get_logger().info(f'   → Surfacing')
+                self.get_logger().info('='*70)
+                
                 self.transition_to(self.SURFACING)
                 return cmd
+            
+            distance_needed = current_x - self.reverse_clearance_x
+            self.get_logger().info(
+                f'🏃 REVERSE CLEARING: X={current_x:.2f}m, '
+                f'need {distance_needed:.2f}m more',
+                throttle_duration_sec=0.4
+            )
         
         cmd.linear.x = 0.8
         return cmd
     
     def surfacing(self, cmd: Twist) -> Twist:
         if self.current_depth > -0.2:
-            self.get_logger().info('='*70)
-            self.get_logger().info('🏁 SURFACED - MISSION COMPLETE')
-            self.get_logger().info('='*70)
             total_time = time.time() - self.mission_start_time
+            
+            self.get_logger().info('='*70)
+            self.get_logger().info('🏆 QUALIFICATION MISSION COMPLETE!')
+            self.get_logger().info('='*70)
             self.get_logger().info(f'   Pass 1: {"✅ COMPLETE" if self.first_pass_complete else "❌ FAILED"}')
             self.get_logger().info(f'   Pass 2: {"✅ COMPLETE" if self.second_pass_complete else "❌ FAILED"}')
             self.get_logger().info(f'   Total time: {total_time:.1f}s')
             
             if self.first_pass_complete and self.second_pass_complete:
                 self.get_logger().info('   🏆 QUALIFICATION SCORE: 2 POINTS')
+                self.get_logger().info('   ✅ QUALIFIED FOR FINALS!')
             elif self.first_pass_complete:
                 self.get_logger().info('   ⚠️ QUALIFICATION SCORE: 1 POINT')
             else:
@@ -505,6 +504,7 @@ class FixedQualificationNavigator(Node):
             
             self.get_logger().info('='*70)
             self.transition_to(self.COMPLETED)
+        
         cmd.linear.z = -0.5
         return cmd
     
@@ -518,7 +518,7 @@ class FixedQualificationNavigator(Node):
     def transition_to(self, new_state: int):
         self.state = new_state
         self.state_start_time = time.time()
-        self.get_logger().info(f'-> {self.get_state_name()}')
+        self.get_logger().info(f'🔄 STATE: {self.get_state_name()}')
     
     def get_state_name(self) -> str:
         names = {
@@ -552,10 +552,16 @@ class FixedQualificationNavigator(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = FixedQualificationNavigator()
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+    node = QualificationNavigator()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        stop_cmd = Twist()
+        node.cmd_vel_pub.publish(stop_cmd)
+        node.destroy_node()
+        rclpy.shutdown()
 
 
 if __name__ == '__main__':
