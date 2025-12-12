@@ -44,9 +44,8 @@ class QualificationNavigator(Node):
         # CRITICAL: AUV dimensions
         self.auv_length = 0.46  # meters
         
-        # CRITICAL FIX: Clearance = AUV length + 0.55m extra
-        # This ensures AUV's back passes gate + travels 0.55m more
-        self.clearance_margin = 0.55  # Extra distance after back passes
+
+        self.clearance_margin = 0.0  # Extra distance after back passes
         
         # Forward pass: AUV must reach X > (gate_x + auv_length + 0.55)
         self.forward_clearance_x = self.gate_x_position + self.auv_length + self.clearance_margin
@@ -484,7 +483,11 @@ class QualificationNavigator(Node):
         return cmd
     
     def surfacing(self, cmd: Twist) -> Twist:
-        if self.current_depth > -0.2:
+
+        depth_to_surface = abs(self.current_depth)
+        
+        # Check if reached surface
+        if self.current_depth > -0.15:
             total_time = time.time() - self.mission_start_time
             
             self.get_logger().info('='*70)
@@ -504,8 +507,37 @@ class QualificationNavigator(Node):
             
             self.get_logger().info('='*70)
             self.transition_to(self.COMPLETED)
+            return cmd
         
-        cmd.linear.z = -0.5
+        # IMPROVED: Progressive thrust reduction based on depth
+        if depth_to_surface > 0.6:
+            # Deep underwater - strong upward thrust
+            cmd.linear.z = -0.6
+            cmd.linear.x = 0.3  # Move forward while ascending
+            status = "DEEP"
+        elif depth_to_surface > 0.4:
+            # Mid-depth - moderate thrust
+            cmd.linear.z = -0.4
+            cmd.linear.x = 0.2
+            status = "MID"
+        elif depth_to_surface > 0.2:
+            # Approaching surface - gentle thrust
+            cmd.linear.z = -0.25
+            cmd.linear.x = 0.15
+            status = "SHALLOW"
+        else:
+            # Very close to surface - minimal thrust
+            cmd.linear.z = -0.15
+            cmd.linear.x = 0.1
+            status = "SURFACE"
+        
+        # Log surfacing progress
+        self.get_logger().info(
+            f'⬆️ SURFACING ({status}): depth={self.current_depth:.2f}m, '
+            f'thrust={cmd.linear.z:.2f}, forward={cmd.linear.x:.2f}',
+            throttle_duration_sec=0.5
+        )
+        
         return cmd
     
     def completed(self, cmd: Twist) -> Twist:

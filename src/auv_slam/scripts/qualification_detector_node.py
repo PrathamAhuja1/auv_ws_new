@@ -333,13 +333,3 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
-
-
-
-
-
-'''
-
-
-Reduce clearance margin to 0.10 and also after clearing the bot comes back to the surface, improve this
-'''
