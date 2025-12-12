@@ -47,11 +47,9 @@ class OptimizedQualificationNavigator(Node):
         # AUV dimensions
         self.auv_length = 0.46
         
-        # Clearance Settings
-        # Pass: 0.55m past gate (clears the robot)
-        # Clear: +1.0m extra (total 1.55m)
+
         self.pass_margin = 0.55
-        self.clear_margin = 1.0
+        self.clear_margin = 0.05
         
         self.forward_clearance_x = 0.0 # Updated on commit
         self.reverse_clearance_x = 0.0 # Updated on commit
@@ -404,8 +402,6 @@ class OptimizedQualificationNavigator(Node):
         if self.current_position:
             current_x = self.current_position[0]
             
-            # Add clear_margin to the existing forward_clearance
-            # Total = Gate + 0.55 + 1.0 = Gate + 1.55m
             clearance_needed = self.forward_clearance_x + self.clear_margin
             
             if current_x > clearance_needed:
@@ -461,7 +457,6 @@ class OptimizedQualificationNavigator(Node):
         if self.current_position:
             current_x = self.current_position[0]
             
-            # Total = Gate - 0.55 - 1.0 = Gate - 1.55m
             clearance_needed = self.reverse_clearance_x - self.clear_margin
             
             if current_x < clearance_needed:
