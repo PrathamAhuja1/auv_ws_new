@@ -36,3 +36,8 @@ qualification_navigator_node:
     approach_speed: 0.5
     passing_speed: 1.0
     passing_duration: 6.0
+    
+    # U-turn Parameters
+    uturn_forward_speed: 0.4 
+    uturn_angular_speed: 0.5  
+    uturn_depth: -0.8 

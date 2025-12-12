@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
-FIXED Qualification Navigator - No Timeout, 0.55m Clearance
-Implements proper qualification sequence per SAUVC rules
+COMPLETE Qualification Navigator - SAUVC Compliant
+- 0.10m clearance margin (reduced from 0.55m)
+- Proper U-turn with forward motion (no spinning in place)
+- Active depth control during U-turn (prevents surfacing)
+- Post-U-turn alignment before reverse pass
+- Gradual surfacing with forward motion
 """
 
 import rclpy
@@ -26,14 +30,15 @@ class QualificationNavigator(Node):
         self.PASSING = 5
         self.CLEARING = 6
         self.UTURN = 7
-        self.REVERSE_SEARCHING = 8
-        self.REVERSE_APPROACHING = 9
-        self.REVERSE_ALIGNING = 10
-        self.REVERSE_FINAL_APPROACH = 11
-        self.REVERSE_PASSING = 12
-        self.REVERSE_CLEARING = 13
-        self.SURFACING = 14
-        self.COMPLETED = 15
+        self.POST_UTURN_ALIGN = 8  # NEW: Align with gate after U-turn
+        self.REVERSE_SEARCHING = 9
+        self.REVERSE_APPROACHING = 10
+        self.REVERSE_ALIGNING = 11
+        self.REVERSE_FINAL_APPROACH = 12
+        self.REVERSE_PASSING = 13
+        self.REVERSE_CLEARING = 14
+        self.SURFACING = 15
+        self.COMPLETED = 16
         
         self.state = self.SUBMERGING
         
@@ -44,13 +49,14 @@ class QualificationNavigator(Node):
         # CRITICAL: AUV dimensions
         self.auv_length = 0.46  # meters
         
-
-        self.clearance_margin = 0.0  # Extra distance after back passes
+        # CRITICAL FIX: Clearance = AUV length + 0.10m extra
+        # This ensures AUV's back passes gate + travels 0.10m more
+        self.clearance_margin = 0.10  # Extra distance after back passes (REDUCED)
         
-        # Forward pass: AUV must reach X > (gate_x + auv_length + 0.55)
+        # Forward pass: AUV must reach X > (gate_x + auv_length + 0.10)
         self.forward_clearance_x = self.gate_x_position + self.auv_length + self.clearance_margin
         
-        # Reverse pass: AUV must reach X < (gate_x - auv_length - 0.55)
+        # Reverse pass: AUV must reach X < (gate_x - auv_length - 0.10)
         self.reverse_clearance_x = self.gate_x_position - self.auv_length - self.clearance_margin
         
         # Parameters
@@ -64,6 +70,11 @@ class QualificationNavigator(Node):
         self.declare_parameter('passing_trigger_distance', 1.0)
         self.declare_parameter('passing_speed', 1.0)
         
+        # U-turn parameters
+        self.declare_parameter('uturn_forward_speed', 0.4)
+        self.declare_parameter('uturn_angular_speed', 0.5)
+        self.declare_parameter('uturn_depth', -0.8)  # Stay at mission depth
+        
         self.search_forward_speed = self.get_parameter('search_forward_speed').value
         self.approach_speed = self.get_parameter('approach_speed').value
         self.approach_stop_distance = self.get_parameter('approach_stop_distance').value
@@ -73,6 +84,11 @@ class QualificationNavigator(Node):
         self.final_approach_speed = self.get_parameter('final_approach_speed').value
         self.passing_trigger_distance = self.get_parameter('passing_trigger_distance').value
         self.passing_speed = self.get_parameter('passing_speed').value
+        self.gate_width = 1.5
+        
+        self.uturn_forward_speed = self.get_parameter('uturn_forward_speed').value
+        self.uturn_angular_speed = self.get_parameter('uturn_angular_speed').value
+        self.uturn_depth = self.get_parameter('uturn_depth').value
         
         # State variables
         self.gate_detected = False
@@ -87,13 +103,18 @@ class QualificationNavigator(Node):
         self.passing_start_position = None
         self.alignment_start_time = 0.0
         self.state_start_time = time.time()
-        self.mission_start_time = time.time()
         self.uturn_start_yaw = 0.0
         self.uturn_start_time = 0.0
+        self.uturn_start_x = 0.0  # NEW: Track X position at start of U-turn
         self.reverse_mode = False
         
         self.first_pass_complete = False
         self.second_pass_complete = False
+        
+        # Timing
+        self.gate_lost_time = 0.0
+        self.gate_lost_timeout = 3.0
+        self.mission_start_time = time.time()
         
         # Subscriptions
         self.create_subscription(Bool, '/qualification/gate_detected', self.gate_cb, 10)
@@ -115,10 +136,13 @@ class QualificationNavigator(Node):
         self.get_logger().info('='*70)
         self.get_logger().info(f'   AUV length: {self.auv_length}m')
         self.get_logger().info(f'   Gate at X={self.gate_x_position}m')
-        self.get_logger().info(f'   Clearance margin: {self.clearance_margin}m (after back passes)')
+        self.get_logger().info(f'   Clearance margin: {self.clearance_margin}m (REDUCED for efficiency)')
         self.get_logger().info(f'   Forward clearance: X > {self.forward_clearance_x:.2f}m')
         self.get_logger().info(f'   Reverse clearance: X < {self.reverse_clearance_x:.2f}m')
         self.get_logger().info('   NO TIMEOUT - Will run until completion')
+        self.get_logger().info('   IMPROVED: Proper U-turn with forward motion')
+        self.get_logger().info('   IMPROVED: Post-U-turn alignment before reverse pass')
+        self.get_logger().info('   IMPROVED: Gradual surfacing with forward motion')
         self.get_logger().info('='*70)
     
     def gate_cb(self, msg: Bool):
@@ -175,6 +199,8 @@ class QualificationNavigator(Node):
             cmd = self.clearing(cmd)
         elif self.state == self.UTURN:
             cmd = self.uturn(cmd)
+        elif self.state == self.POST_UTURN_ALIGN:
+            cmd = self.post_uturn_align(cmd)
         elif self.state == self.REVERSE_SEARCHING:
             cmd = self.searching(cmd)
         elif self.state == self.REVERSE_APPROACHING:
@@ -233,7 +259,9 @@ class QualificationNavigator(Node):
     
     def searching(self, cmd: Twist) -> Twist:
         if self.gate_detected and self.estimated_distance < 999:
-            self.get_logger().info(f'🎯 Gate found at {self.estimated_distance:.2f}m')
+            self.get_logger().info(
+                f'🎯 Gate found at {self.estimated_distance:.2f}m'
+            )
             if self.reverse_mode:
                 self.transition_to(self.REVERSE_APPROACHING)
             else:
@@ -367,7 +395,7 @@ class QualificationNavigator(Node):
                 self.get_logger().info(f'   Current position: X={current_x:.2f}m')
                 self.get_logger().info(f'   AUV back at: X={auv_back_x:.2f}m')
                 self.get_logger().info(f'   Gate at: X={self.gate_x_position:.2f}m')
-                self.get_logger().info(f'   → Entering CLEARING (0.55m more)')
+                self.get_logger().info(f'   → Entering CLEARING (0.10m more)')
                 self.get_logger().info('='*70)
                 
                 if not self.reverse_mode:
@@ -396,7 +424,7 @@ class QualificationNavigator(Node):
     
     def clearing(self, cmd: Twist) -> Twist:
         """
-        CLEARING STATE: Travel 0.55m more after back passes gate
+        CLEARING STATE: Travel 0.10m more after back passes gate
         """
         if self.current_position:
             current_x = self.current_position[0]
@@ -411,8 +439,8 @@ class QualificationNavigator(Node):
                 self.get_logger().info(f'   → Starting U-TURN')
                 self.get_logger().info('='*70)
                 
-                self.uturn_start_yaw = self.current_yaw
-                self.uturn_start_time = time.time()
+                # Reset U-turn timer for proper initialization
+                self.uturn_start_time = 0.0
                 self.transition_to(self.UTURN)
                 return cmd
             
@@ -428,34 +456,115 @@ class QualificationNavigator(Node):
         return cmd
     
     def uturn(self, cmd: Twist) -> Twist:
+        """
+        PROPER U-TURN: Wide turning maneuver while maintaining depth
+        - Moves forward while turning (not spinning in place)
+        - Maintains constant depth to avoid surfacing
+        - Completes 180-degree turn to face gate
+        - Transitions to alignment after turn
+        """
+        
+        # Initialize U-turn
+        if self.uturn_start_time == 0.0:
+            self.uturn_start_yaw = self.current_yaw
+            self.uturn_start_time = time.time()
+            self.uturn_start_x = self.current_position[0] if self.current_position else 0.0
+            self.get_logger().info('='*70)
+            self.get_logger().info('🔄 STARTING PROPER U-TURN')
+            self.get_logger().info(f'   Starting yaw: {math.degrees(self.uturn_start_yaw):.1f}°')
+            self.get_logger().info(f'   Starting X: {self.uturn_start_x:.2f}m')
+            self.get_logger().info('='*70)
+        
+        # Calculate how much we've turned
         angle_turned = abs(self.normalize_angle(self.current_yaw - self.uturn_start_yaw))
         elapsed = time.time() - self.uturn_start_time
         
-        if angle_turned > (math.pi - 0.2):
+        # Check if U-turn is complete (180 degrees ± 10 degrees)
+        if angle_turned > (math.pi - 0.17):  # ~170 degrees
+            turn_distance = abs(self.current_position[0] - self.uturn_start_x) if self.current_position else 0
+            
             self.get_logger().info('='*70)
             self.get_logger().info(
                 f'✅ U-TURN COMPLETE (turned {math.degrees(angle_turned):.0f}°, {elapsed:.1f}s)'
             )
-            self.get_logger().info('   → Starting REVERSE pass')
+            self.get_logger().info(f'   Travel distance: {turn_distance:.2f}m')
+            self.get_logger().info(f'   Final yaw: {math.degrees(self.current_yaw):.1f}°')
+            self.get_logger().info('   → Aligning with gate for reverse pass')
             self.get_logger().info('='*70)
+            
             self.reverse_mode = True
             self.reverse_mode_pub.publish(Bool(data=True))
-            self.transition_to(self.REVERSE_SEARCHING)
+            self.uturn_start_time = 0.0  # Reset for next time
+            self.transition_to(self.POST_UTURN_ALIGN)
             return cmd
         
-        cmd.linear.x = 0.2
-        cmd.angular.z = 0.7
+        # PROPER U-TURN MANEUVER
+        # Move forward while turning - creates a proper arc
+        cmd.linear.x = self.uturn_forward_speed  # Forward motion
+        cmd.angular.z = self.uturn_angular_speed  # Turning
         
+        # CRITICAL: Maintain depth during U-turn
+        depth_error = self.uturn_depth - self.current_depth
+        if abs(depth_error) > 0.15:
+            cmd.linear.z = depth_error * 1.0  # Strong depth correction
+            cmd.linear.z = max(-0.5, min(cmd.linear.z, 0.5))
+        else:
+            cmd.linear.z = depth_error * 0.3  # Gentle adjustment
+        
+        # Log progress
+        progress_pct = (angle_turned / math.pi) * 100
         self.get_logger().info(
-            f'🔄 U-TURN: {math.degrees(angle_turned):.0f}° / 180°',
+            f'🔄 U-TURN: {math.degrees(angle_turned):.0f}° / 180° ({progress_pct:.0f}%) | '
+            f'depth={self.current_depth:.2f}m | X={self.current_position[0]:.2f}m',
             throttle_duration_sec=0.5
         )
         
         return cmd
     
+    def post_uturn_align(self, cmd: Twist) -> Twist:
+        """
+        POST U-TURN ALIGNMENT: Align with gate after completing U-turn
+        - Ensures AUV is properly oriented toward gate
+        - Searches for gate if not immediately visible
+        - Only proceeds when gate is detected and aligned
+        """
+        
+        # Check if we can see the gate
+        if self.gate_detected:
+            # Gate visible - check alignment
+            if abs(self.frame_position) < 0.15:
+                # Well aligned - start reverse approach
+                self.get_logger().info('='*70)
+                self.get_logger().info('✅ POST-UTURN ALIGNMENT COMPLETE')
+                self.get_logger().info(f'   Alignment: {self.frame_position:+.3f}')
+                self.get_logger().info('   → Starting reverse approach')
+                self.get_logger().info('='*70)
+                self.transition_to(self.REVERSE_APPROACHING)
+                return cmd
+            else:
+                # Need to adjust alignment
+                cmd.linear.x = 0.2  # Slow forward
+                cmd.angular.z = -self.frame_position * 2.0  # Correct alignment
+                
+                self.get_logger().info(
+                    f'🎯 POST-UTURN ALIGN: pos={self.frame_position:+.3f}, adjusting...',
+                    throttle_duration_sec=0.5
+                )
+        else:
+            # Gate not visible - search for it
+            cmd.linear.x = 0.3  # Move forward slowly
+            cmd.angular.z = 0.2  # Gentle rotation to find gate
+            
+            self.get_logger().info(
+                '🔍 POST-UTURN ALIGN: Searching for gate...',
+                throttle_duration_sec=0.5
+            )
+        
+        return cmd
+    
     def reverse_clearing(self, cmd: Twist) -> Twist:
         """
-        REVERSE CLEARING: Travel 0.55m more after back passes gate (reverse direction)
+        REVERSE CLEARING: Travel 0.10m more after back passes gate (reverse direction)
         """
         if self.current_position:
             current_x = self.current_position[0]
@@ -483,7 +592,13 @@ class QualificationNavigator(Node):
         return cmd
     
     def surfacing(self, cmd: Twist) -> Twist:
-
+        """
+        IMPROVED SURFACING: Gradual, controlled ascent with forward motion
+        - Starts with strong upward thrust deep underwater
+        - Reduces thrust progressively as approaching surface
+        - Moves forward to clear the area
+        - Smooth transition to surface
+        """
         depth_to_surface = abs(self.current_depth)
         
         # Check if reached surface
@@ -541,18 +656,25 @@ class QualificationNavigator(Node):
         return cmd
     
     def completed(self, cmd: Twist) -> Twist:
+        """Mission complete - stop all movement"""
         cmd.linear.x = 0.0
         cmd.linear.y = 0.0
         cmd.linear.z = 0.0
         cmd.angular.z = 0.0
+        
         return cmd
     
     def transition_to(self, new_state: int):
+        """Transition to new state"""
+        old_name = self.get_state_name()
         self.state = new_state
         self.state_start_time = time.time()
-        self.get_logger().info(f'🔄 STATE: {self.get_state_name()}')
+        new_name = self.get_state_name()
+        
+        self.get_logger().info(f'🔄 STATE TRANSITION: {old_name} → {new_name}')
     
     def get_state_name(self) -> str:
+        """Get human-readable state name"""
         names = {
             self.SUBMERGING: 'SUBMERGING',
             self.SEARCHING: 'SEARCHING',
@@ -562,6 +684,7 @@ class QualificationNavigator(Node):
             self.PASSING: 'PASSING',
             self.CLEARING: 'CLEARING',
             self.UTURN: 'UTURN',
+            self.POST_UTURN_ALIGN: 'POST_UTURN_ALIGN',
             self.REVERSE_SEARCHING: 'REVERSE_SEARCHING',
             self.REVERSE_APPROACHING: 'REVERSE_APPROACHING',
             self.REVERSE_ALIGNING: 'REVERSE_ALIGNING',
