@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """
-FINAL FIXED Qualification Navigator
-Key Fixes:
-1. 0.55m clearance (as per rules)
-2. Center lock clears AFTER clearance (not during U-turn start)
-3. Improved U-turn depth control (stays submerged)
-4. No emergency straight mode
+COMPLETE FIXED Qualification Navigator - STAYS SUBMERGED DURING U-TURN
+Only modifications in navigator logic, no thruster mapper changes needed
+
+CRITICAL FIXES:
+1. VERY SLOW forward speed (0.12 m/s) - minimizes hydrodynamic lift
+2. ULTRA-AGGRESSIVE depth control (5x-6x gains) - powerful corrections
+3. STRONG downward bias (-0.4 m/s) - compensates for lift
+4. Emergency surface prevention - forces down if shallow
+5. Continuous depth monitoring - catches issues early
 """
 
 import rclpy
@@ -45,7 +48,7 @@ class QualificationNavigator(Node):
         self.gate_x_position = 0.0
         self.mission_depth = -0.8
         self.auv_length = 0.46
-        self.clearance_margin = 0.36  # SAUVC requirement
+        self.clearance_margin = 0.36
         
         self.forward_clearance_x = self.gate_x_position + self.auv_length + self.clearance_margin
         self.reverse_clearance_x = self.gate_x_position - self.auv_length - self.clearance_margin
@@ -61,10 +64,11 @@ class QualificationNavigator(Node):
         self.declare_parameter('passing_trigger_distance', 1.0)
         self.declare_parameter('passing_speed', 1.0)
         
-        # U-turn parameters - OPTIMIZED for depth control
-        self.declare_parameter('uturn_forward_speed', 0.3)  # Reduced for stability
-        self.declare_parameter('uturn_angular_speed', 0.4)  # Reduced for stability
+        # CRITICAL: U-turn parameters - EXTREME ANTI-SURFACING MODE
+        self.declare_parameter('uturn_forward_speed', 0.12)  # VERY slow
+        self.declare_parameter('uturn_angular_speed', 0.30)  # Slower rotation
         self.declare_parameter('uturn_depth', -0.8)
+        self.declare_parameter('uturn_depth_bias', -0.4)  # Strong downward bias
         
         self.search_forward_speed = self.get_parameter('search_forward_speed').value
         self.approach_speed = self.get_parameter('approach_speed').value
@@ -76,9 +80,11 @@ class QualificationNavigator(Node):
         self.passing_trigger_distance = self.get_parameter('passing_trigger_distance').value
         self.passing_speed = self.get_parameter('passing_speed').value
         self.gate_width = 1.5
+        
         self.uturn_forward_speed = self.get_parameter('uturn_forward_speed').value
         self.uturn_angular_speed = self.get_parameter('uturn_angular_speed').value
         self.uturn_depth = self.get_parameter('uturn_depth').value
+        self.uturn_depth_bias = self.get_parameter('uturn_depth_bias').value
         
         # State variables
         self.gate_detected = False
@@ -122,12 +128,12 @@ class QualificationNavigator(Node):
         self.create_timer(0.05, self.control_loop)
         
         self.get_logger().info('='*70)
-        self.get_logger().info('✅ FINAL FIXED QUALIFICATION NAVIGATOR')
+        self.get_logger().info('✅ QUALIFICATION NAVIGATOR - EXTREME ANTI-SURFACING MODE')
         self.get_logger().info('='*70)
-        self.get_logger().info('   ✓ 0.55m clearance (SAUVC compliant)')
-        self.get_logger().info('   ✓ Center lock clears AFTER clearance')
-        self.get_logger().info('   ✓ Improved U-turn depth control')
-        self.get_logger().info('   ✓ Bot stays submerged throughout')
+        self.get_logger().info('   ✓ VERY SLOW U-turn (0.12 m/s) - minimal lift')
+        self.get_logger().info('   ✓ ULTRA-AGGRESSIVE depth control (5x-6x gains)')
+        self.get_logger().info('   ✓ STRONG downward bias (-0.4 m/s)')
+        self.get_logger().info('   ✓ Emergency surface prevention')
         self.get_logger().info(f'   Forward clearance: X > {self.forward_clearance_x:.2f}m')
         self.get_logger().info(f'   Reverse clearance: X < {self.reverse_clearance_x:.2f}m')
         self.get_logger().info('='*70)
@@ -167,7 +173,7 @@ class QualificationNavigator(Node):
         if self.state == self.PASSING or self.state == self.REVERSE_PASSING:
             cmd.linear.z = self.gentle_depth_control(self.mission_depth)
         elif self.state == self.UTURN:
-            # U-turn has its own depth control (don't set here)
+            # U-turn has SPECIAL depth control (done in uturn function)
             pass
         else:
             cmd.linear.z = self.depth_control(self.mission_depth)
@@ -392,7 +398,6 @@ class QualificationNavigator(Node):
                 self.get_logger().info('   → Starting U-TURN')
                 self.get_logger().info('='*70)
                 
-                # CRITICAL: Clear center lock AFTER clearance
                 self.clear_center_lock_pub.publish(Bool(data=True))
                 
                 self.uturn_start_time = 0.0
@@ -409,7 +414,16 @@ class QualificationNavigator(Node):
         return cmd
     
     def uturn(self, cmd: Twist) -> Twist:
-        """IMPROVED U-turn with strong depth control"""
+        """
+        EXTREME ANTI-SURFACING U-TURN
+        
+        Strategy:
+        1. VERY SLOW forward (0.12 m/s) - minimizes hydrodynamic lift
+        2. ULTRA-AGGRESSIVE depth control (5x-6x gains) - powerful corrections
+        3. STRONG downward bias (-0.4 m/s) - pre-emptive compensation
+        4. Emergency prevention - catches dangerous shallowing
+        5. Continuous monitoring - tight control loop
+        """
         
         if self.uturn_start_time == 0.0:
             self.uturn_start_yaw = self.current_yaw
@@ -417,17 +431,18 @@ class QualificationNavigator(Node):
             self.uturn_start_x = self.current_position[0] if self.current_position else 0.0
             
             self.get_logger().info('='*70)
-            self.get_logger().info('🔄 STARTING U-TURN')
+            self.get_logger().info('🔄 U-TURN - EXTREME ANTI-SURFACING MODE')
             self.get_logger().info(f'   Starting yaw: {math.degrees(self.uturn_start_yaw):.1f}°')
             self.get_logger().info(f'   Starting depth: {self.current_depth:.2f}m')
+            self.get_logger().info(f'   Forward: {self.uturn_forward_speed:.2f} m/s (VERY SLOW)')
+            self.get_logger().info(f'   Bias: {self.uturn_depth_bias:.2f} m/s (STRONG DOWN)')
             self.get_logger().info('='*70)
         
         angle_turned = abs(self.normalize_angle(self.current_yaw - self.uturn_start_yaw))
         elapsed = time.time() - self.uturn_start_time
         
+        # Check completion
         if angle_turned > (math.pi - 0.17):
-            turn_distance = abs(self.current_position[0] - self.uturn_start_x) if self.current_position else 0
-            
             self.get_logger().info('='*70)
             self.get_logger().info(f'✅ U-TURN COMPLETE ({elapsed:.1f}s)')
             self.get_logger().info(f'   Final depth: {self.current_depth:.2f}m')
@@ -440,37 +455,61 @@ class QualificationNavigator(Node):
             self.transition_to(self.POST_UTURN_ALIGN)
             return cmd
         
-        # IMPROVED: Reduced speeds for stability
-        cmd.linear.x = self.uturn_forward_speed  # 0.3 m/s
-        cmd.angular.z = self.uturn_angular_speed  # 0.4 rad/s
+        # CRITICAL FIX 1: VERY SLOW forward speed
+        cmd.linear.x = self.uturn_forward_speed  # 0.12 m/s
         
-        # CRITICAL: Strong depth control during U-turn
+        # CRITICAL FIX 2: Slower angular velocity
+        cmd.angular.z = self.uturn_angular_speed  # 0.30 rad/s
+        
+        # CRITICAL FIX 3: ULTRA-AGGRESSIVE depth control with STRONG bias
         depth_error = self.uturn_depth - self.current_depth
         
-        if abs(depth_error) > 0.2:
-            # Strong correction for large errors
-            cmd.linear.z = depth_error * 1.5
-            cmd.linear.z = max(-0.8, min(cmd.linear.z, 0.8))
-        elif abs(depth_error) > 0.1:
-            # Moderate correction
-            cmd.linear.z = depth_error * 1.0
-            cmd.linear.z = max(-0.5, min(cmd.linear.z, 0.5))
-        else:
-            # Fine tuning
-            cmd.linear.z = depth_error * 0.5
+        # EMERGENCY LEVEL 1: Dangerously shallow (above -0.3m)
+        if self.current_depth > -0.3:
+            self.get_logger().error(
+                f'🚨🚨 CRITICAL: VERY SHALLOW ({self.current_depth:.2f}m)! MAXIMUM DOWNWARD THRUST!'
+            )
+            cmd.linear.z = -1.5  # MAXIMUM downward
         
-        # Log depth status
-        if abs(depth_error) > 0.15:
+        # EMERGENCY LEVEL 2: Too shallow (above -0.5m)
+        elif self.current_depth > -0.5:
+            self.get_logger().error(
+                f'🚨 EMERGENCY: TOO SHALLOW ({self.current_depth:.2f}m)! FORCING DOWN!'
+            )
+            cmd.linear.z = -1.2  # Strong downward
+        
+        # CRITICAL: Large error (> 12cm)
+        elif abs(depth_error) > 0.12:
+            # VERY STRONG correction: 6x gain + bias
+            cmd.linear.z = depth_error * 6.0 + self.uturn_depth_bias
+            cmd.linear.z = max(-1.2, min(cmd.linear.z, 0.8))
+        
+        # MODERATE: Medium error (> 7cm)
+        elif abs(depth_error) > 0.07:
+            # STRONG correction: 5x gain + bias
+            cmd.linear.z = depth_error * 5.0 + self.uturn_depth_bias
+            cmd.linear.z = max(-1.0, min(cmd.linear.z, 0.6))
+        
+        # FINE TUNING: Small error
+        else:
+            # ACTIVE correction: 3x gain + reduced bias
+            cmd.linear.z = depth_error * 3.0 + self.uturn_depth_bias * 0.5
+            cmd.linear.z = max(-0.7, min(cmd.linear.z, 0.4))
+        
+        # Enhanced monitoring and logging
+        if abs(depth_error) > 0.08 or self.current_depth > -0.6:
+            severity = "🚨 CRITICAL" if self.current_depth > -0.5 else "⚠️ WARNING"
             self.get_logger().warn(
-                f'U-TURN: depth={self.current_depth:.2f}m (error={depth_error:.2f}m), '
-                f'correcting with z={cmd.linear.z:.2f}',
-                throttle_duration_sec=0.5
+                f'U-TURN {severity}: depth={self.current_depth:.2f}m '
+                f'(target={self.uturn_depth:.2f}m) | '
+                f'error={depth_error:+.2f}m | z_cmd={cmd.linear.z:+.2f}',
+                throttle_duration_sec=0.2
             )
         else:
             self.get_logger().info(
                 f'🔄 U-TURN: {math.degrees(angle_turned):.0f}° / 180° | '
-                f'depth={self.current_depth:.2f}m ✓',
-                throttle_duration_sec=0.5
+                f'depth={self.current_depth:.2f}m ✓ | z={cmd.linear.z:+.2f}',
+                throttle_duration_sec=0.4
             )
         
         return cmd

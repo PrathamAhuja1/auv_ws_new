@@ -406,23 +406,6 @@
       </link>
     </model>
 
-    <model name="distance_marker_5m">
-      <static>true</static>
-      <pose>-5 0 0.01 0 0 0</pose>
-      <link name="marker_link">
-        <visual name="marker_visual">
-          <geometry>
-            <box>
-              <size>0.5 0.5 0.02</size>
-            </box>
-          </geometry>
-          <material>
-            <ambient>0.5 0.5 0.5 0.5</ambient>
-            <diffuse>0.5 0.5 0.5 0.5</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
 
     <include>
       <uri>model://auv_slam/models/orca4_ign</uri>
