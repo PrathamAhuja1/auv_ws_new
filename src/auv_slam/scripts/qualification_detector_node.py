@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
-Stable Qualification Gate Detector
-Works with corrected navigator for SAUVC compliance
+FINAL FIXED Qualification Gate Detector
+Key Fixes:
+1. NO emergency straight mode
+2. Center lock clears only after clearance
+3. Proper re-locking for reverse pass
 """
 
 import rclpy
@@ -16,9 +19,10 @@ import numpy as np
 from collections import deque
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 
+
 class QualificationDetector(Node):
     def __init__(self):
-        super().__init__('qualification_detector_node')
+        super().__init__('qualification_gate_detector')
         self.bridge = CvBridge()
         self.camera_matrix = None
         
@@ -42,12 +46,10 @@ class QualificationDetector(Node):
         self.locked_center_y = None
         self.lock_confidence_threshold = 0.8
         self.lock_distance_threshold = 2.5
+        self.center_lock_enabled = True
         
         self.center_history = deque(maxlen=5)
         self.center_smoothing_alpha = 0.3
-        
-        self.emergency_straight_mode = False
-        self.emergency_trigger_distance = 1.5
         
         qos_sensor = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -65,6 +67,9 @@ class QualificationDetector(Node):
         self.reverse_mode_sub = self.create_subscription(
             Bool, '/mission/reverse_mode', self.reverse_mode_callback, 10)
         
+        self.clear_lock_sub = self.create_subscription(
+            Bool, '/mission/clear_center_lock', self.clear_lock_callback, 10)
+        
         self.odom_sub = self.create_subscription(
             Odometry, '/ground_truth/odom', self.odom_callback, 10)
         
@@ -79,16 +84,45 @@ class QualificationDetector(Node):
         self.status_pub = self.create_publisher(String, '/qualification/status', 10)
         self.frame_position_pub = self.create_publisher(Float32, '/qualification/frame_position', 10)
         
-        self.get_logger().info('✅ Qualification Detector initialized')
+        self.get_logger().info('='*70)
+        self.get_logger().info('✅ FINAL FIXED Qualification Detector')
+        self.get_logger().info('   ✓ NO emergency straight mode')
+        self.get_logger().info('   ✓ Lock clears after clearance only')
+        self.get_logger().info('   ✓ Proper re-locking for reverse')
+        self.get_logger().info('='*70)
     
     def reverse_mode_callback(self, msg: Bool):
+        """Handle reverse mode activation"""
+        was_reverse = self.reverse_mode
         self.reverse_mode = msg.data
+        
+        if not was_reverse and msg.data:
+            # Entering reverse mode - clear lock and re-enable
+            self.gate_center_locked = False
+            self.locked_center_x = None
+            self.locked_center_y = None
+            self.center_lock_enabled = True
+            self.center_history.clear()
+            
+            self.get_logger().info('='*70)
+            self.get_logger().info('🔄 REVERSE MODE ACTIVATED')
+            self.get_logger().info('   ✓ Center lock cleared')
+            self.get_logger().info('   ✓ Locking enabled for reverse pass')
+            self.get_logger().info('='*70)
+    
+    def clear_lock_callback(self, msg: Bool):
+        """Handle center lock clear signal (after clearance)"""
         if msg.data:
             self.gate_center_locked = False
             self.locked_center_x = None
             self.locked_center_y = None
-            self.emergency_straight_mode = False
-            self.get_logger().info('🔄 REVERSE MODE - Reset center lock')
+            self.center_lock_enabled = False
+            self.center_history.clear()
+            
+            self.get_logger().info('='*70)
+            self.get_logger().info('🚫 CENTER LOCK CLEARED (After Clearance)')
+            self.get_logger().info('   ⚠️ Locking DISABLED for U-turn')
+            self.get_logger().info('='*70)
     
     def odom_callback(self, msg: Odometry):
         self.current_position = (
@@ -119,11 +153,12 @@ class QualificationDetector(Node):
         
         # Detect orange posts
         orange_mask = cv2.inRange(hsv_image, self.orange_lower, self.orange_upper)
-        
         kernel = np.ones((5, 5), np.uint8)
         orange_mask_clean = cv2.dilate(orange_mask, kernel, iterations=3)
         
-        orange_contours, _ = cv2.findContours(orange_mask_clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        orange_contours, _ = cv2.findContours(
+            orange_mask_clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
         
         posts = []
         for cnt in orange_contours:
@@ -134,9 +169,9 @@ class QualificationDetector(Node):
             M = cv2.moments(cnt)
             if M["m00"] == 0:
                 continue
+            
             cx = int(M["m10"] / M["m00"])
             cy = int(M["m01"] / M["m00"])
-            
             x, y, w_box, h_box = cv2.boundingRect(cnt)
             
             posts.append({
@@ -152,7 +187,6 @@ class QualificationDetector(Node):
             estimated_distance = abs(self.gate_x_position - current_x)
         else:
             estimated_distance = abs(current_x - self.gate_x_position)
-        
         estimated_distance = max(0.5, min(estimated_distance, 15.0))
         
         gate_detected = False
@@ -163,25 +197,9 @@ class QualificationDetector(Node):
         frame_position = 0.0
         confidence = 0.0
         
-        # Emergency straight mode
-        if estimated_distance < self.emergency_trigger_distance and len(posts) == 0 and not self.gate_center_locked:
-            if not self.emergency_straight_mode:
-                self.emergency_straight_mode = True
-                self.get_logger().warn('⚠️ EMERGENCY: Gate lost close - proceeding straight')
+        # NO EMERGENCY STRAIGHT MODE - removed completely
         
-        if self.emergency_straight_mode and not self.gate_center_locked:
-            gate_detected = True
-            confidence = 0.5
-            gate_center_x = w // 2
-            gate_center_y = h // 2
-            alignment_error = 0.0
-            frame_position = 0.0
-            
-            cv2.putText(debug_img, "EMERGENCY STRAIGHT", 
-                       (w//2 - 150, h//2),
-                       cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 3)
-        
-        elif self.gate_center_locked:
+        if self.gate_center_locked:
             # Use locked center
             gate_detected = True
             confidence = 1.0
@@ -207,7 +225,6 @@ class QualificationDetector(Node):
         elif len(posts) >= 2:
             # Two posts detected
             posts_sorted = sorted(posts, key=lambda p: p['x_pos'])
-            
             left_post = posts_sorted[0]
             right_post = posts_sorted[1]
             
@@ -231,12 +248,16 @@ class QualificationDetector(Node):
             
             self.center_history.append((gate_center_x, gate_center_y))
             
-            # Lock center when close
-            if not self.gate_center_locked and estimated_distance < 3.5 and confidence >= 0.9:
-                self.gate_center_locked = True
-                self.locked_center_x = gate_center_x
-                self.locked_center_y = gate_center_y
-                self.get_logger().info(f'🔒 CENTER LOCKED at {estimated_distance:.2f}m')
+            # Lock if enabled and close enough
+            if self.center_lock_enabled and not self.gate_center_locked:
+                if estimated_distance < 3.5 and confidence >= 0.9:
+                    self.gate_center_locked = True
+                    self.locked_center_x = gate_center_x
+                    self.locked_center_y = gate_center_y
+                    self.get_logger().info(
+                        f'🔒 CENTER LOCKED at {estimated_distance:.2f}m '
+                        f'(reverse={self.reverse_mode})'
+                    )
             
             if self.gate_center_locked:
                 self.locked_center_x = gate_center_x
@@ -276,6 +297,9 @@ class QualificationDetector(Node):
             cv2.putText(debug_img, "PARTIAL", 
                        (gate_center_x - 60, gate_center_y - 40),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 165, 255), 2)
+        else:
+            # No posts detected
+            gate_detected = False
         
         # Draw center line
         cv2.line(debug_img, (w//2, 0), (w//2, h), (255, 255, 0), 2)
@@ -283,19 +307,35 @@ class QualificationDetector(Node):
             cv2.line(debug_img, (gate_center_x, 0), (gate_center_x, h), (0, 255, 0), 3)
         
         # Status overlay
+        status_y = 40
         cv2.putText(debug_img, f"Dist: {estimated_distance:.2f}m", 
-                   (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-        cv2.putText(debug_img, f"Posts: {len(posts)}", 
-                   (10, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                   (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+        status_y += 35
         
-        if self.gate_center_locked:
-            cv2.putText(debug_img, "LOCK: ON", 
-                       (10, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        cv2.putText(debug_img, f"Posts: {len(posts)}", 
+                   (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        status_y += 35
+        
+        lock_status = "LOCKED" if self.gate_center_locked else "UNLOCKED"
+        lock_color = (0, 255, 0) if self.gate_center_locked else (100, 100, 100)
+        cv2.putText(debug_img, f"Lock: {lock_status}", 
+                   (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, lock_color, 2)
+        status_y += 35
+        
+        if not self.center_lock_enabled:
+            cv2.putText(debug_img, "LOCK DISABLED (U-TURN)", 
+                       (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            status_y += 35
+        
+        if self.reverse_mode:
+            cv2.putText(debug_img, "MODE: REVERSE", 
+                       (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
+            status_y += 35
         
         if gate_detected:
             status_color = (0, 255, 0) if not partial_gate else (0, 165, 255)
             cv2.putText(debug_img, f"Conf: {confidence:.2f} | Align: {alignment_error:+.3f}", 
-                       (10, 145), cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
+                       (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
         
         # Publish data
         self.gate_detection_history.append(gate_detected)
